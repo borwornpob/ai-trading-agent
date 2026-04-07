@@ -1,0 +1,49 @@
+"use client";
+
+import { TrendingUp, TrendingDown, Minus } from "lucide-react";
+import { cn } from "@/lib/utils";
+
+type Props = {
+  label: string;
+  score: number;
+  confidence?: number;
+  size?: "sm" | "md" | "lg";
+};
+
+const colorMap: Record<string, string> = {
+  bullish: "bg-green-500/10 text-green-400 border-green-500/20",
+  bearish: "bg-red-500/10 text-red-400 border-red-500/20",
+  neutral: "bg-muted text-muted-foreground border-border",
+};
+
+const iconMap: Record<string, typeof TrendingUp> = {
+  bullish: TrendingUp,
+  bearish: TrendingDown,
+  neutral: Minus,
+};
+
+const sizeMap = {
+  sm: { badge: "text-[11px] px-2 py-0.5 gap-1", icon: "size-3" },
+  md: { badge: "text-xs px-2.5 py-1 gap-1.5", icon: "size-3.5" },
+  lg: { badge: "text-sm px-3 py-1.5 gap-2", icon: "size-4" },
+};
+
+export default function SentimentBadge({ label, score, confidence, size = "md" }: Props) {
+  const color = colorMap[label] || colorMap.neutral;
+  const Icon = iconMap[label] || iconMap.neutral;
+  const s = sizeMap[size];
+
+  return (
+    <span className={cn("inline-flex items-center rounded-full border font-medium", color, s.badge)}>
+      <Icon className={s.icon} />
+      <span className="capitalize">{label}</span>
+      <span className="opacity-60">
+        {score > 0 ? "+" : ""}
+        {score.toFixed(2)}
+      </span>
+      {confidence !== undefined && (
+        <span className="opacity-40">{(confidence * 100).toFixed(0)}%</span>
+      )}
+    </span>
+  );
+}

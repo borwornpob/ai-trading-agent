@@ -1,0 +1,80 @@
+"""
+MT5 Bridge Connector — HTTP client that calls the MT5 Bridge on Windows VPS.
+"""
+
+import asyncio
+from typing import Any
+
+import httpx
+from loguru import logger
+
+from app.config import settings
+
+
+class MT5BridgeConnector:
+    def __init__(self):
+        self.base_url = settings.mt5_bridge_url
+        self.headers = {"X-Bridge-Key": settings.mt5_bridge_api_key}
+        self.timeout = 5.0
+        self.max_retries = 2
+
+    def _client(self) -> httpx.AsyncClient:
+        return httpx.AsyncClient(
+            base_url=self.base_url,
+            headers=self.headers,
+            timeout=self.timeout,
+        )
+
+    async def _request(self, method: str, path: str, **kwargs) -> dict[str, Any]:
+        last_error = None
+        for attempt in range(self.max_retries + 1):
+            try:
+                async with self._client() as client:
+                    response = await getattr(client, method)(path, **kwargs)
+                    response.raise_for_status()
+                    return response.json()
+            except (httpx.TimeoutException, httpx.ConnectError) as e:
+                last_error = e
+                if attempt < self.max_retries:
+                    logger.warning(f"MT5 Bridge {method.upper()} {path} retry {attempt + 1}: {e}")
+                    await asyncio.sleep(1)
+                else:
+                    logger.error(f"MT5 Bridge {method.upper()} {path} failed after {self.max_retries + 1} attempts: {e}")
+                    return {"success": False, "data": None, "error": str(e)}
+            except httpx.HTTPStatusError as e:
+                logger.error(f"MT5 Bridge {method.upper()} {path} HTTP error: {e.response.status_code}")
+                return {"success": False, "data": None, "error": str(e)}
+
+    async def get_health(self) -> dict:
+        return await self._request("get", "/health")
+
+    async def get_tick(self, symbol: str) -> dict:
+        return await self._request("get", f"/tick/{symbol}")
+
+    async def get_ohlcv(self, symbol: str, timeframe: str = "M15", count: int = 100) -> dict:
+        return await self._request("get", f"/ohlcv/{symbol}", params={"timeframe": timeframe, "count": count})
+
+    async def get_account(self) -> dict:
+        return await self._request("get", "/account")
+
+    async def get_positions(self) -> dict:
+        return await self._request("get", "/positions")
+
+    async def place_order(
+        self, symbol: str, order_type: str, lot: float, sl: float, tp: float, comment: str = "", magic: int = 234000
+    ) -> dict:
+        return await self._request("post", "/order", json={
+            "symbol": symbol,
+            "type": order_type,
+            "lot": lot,
+            "sl": sl,
+            "tp": tp,
+            "comment": comment,
+            "magic": magic,
+        })
+
+    async def close_position(self, ticket: int) -> dict:
+        return await self._request("delete", f"/position/{ticket}")
+
+    async def close_all_positions(self) -> dict:
+        return await self._request("delete", "/positions")
