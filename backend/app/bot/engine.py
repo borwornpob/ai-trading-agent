@@ -494,6 +494,10 @@ class BotEngine:
             await self.db.commit()
         except Exception as e:
             logger.error(f"Failed to log event: {e}")
+            try:
+                await self.db.rollback()
+            except Exception:
+                pass
 
     async def _push_event(self, channel: str, data: dict):
         try:
