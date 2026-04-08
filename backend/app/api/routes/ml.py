@@ -2,6 +2,7 @@
 ML Model API routes — training, prediction, and status.
 """
 
+import asyncio
 import json
 from datetime import datetime, timezone
 
@@ -51,8 +52,9 @@ async def train_model(req: TrainRequest):
     if len(X) < 200:
         return {"error": f"Insufficient labeled samples: {len(X)} (need 200+)"}
 
-    # Train
-    result = trainer.train(X, y, req.test_size)
+    # Train in thread pool to avoid blocking event loop
+    loop = asyncio.get_event_loop()
+    result = await loop.run_in_executor(None, trainer.train, X, y, req.test_size)
 
     # Save model
     model_path = settings.ml_model_path
