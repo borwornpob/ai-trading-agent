@@ -80,7 +80,7 @@ async def get_account():
         }
     result = await bot.connector.get_account()
     if not result.get("success"):
-        raise HTTPException(status_code=502, detail=result.get("error", "Failed to get account"))
+        return {"balance": 0, "equity": 0, "margin": 0, "free_margin": 0, "profit": 0, "currency": "USD", "error": result.get("error")}
     return result["data"]
 
 

@@ -61,16 +61,16 @@ export default function DashboardPage() {
   const fetchData = useCallback(async () => {
     try {
       const [statusRes, posRes, sentRes, newsRes, accRes] = await Promise.all([
-        getBotStatus(),
-        getPositions(),
-        getLatestSentiment(),
-        getSentimentHistory(1),
+        getBotStatus().catch(() => null),
+        getPositions().catch(() => null),
+        getLatestSentiment().catch(() => null),
+        getSentimentHistory(1).catch(() => null),
         getAccount().catch(() => null),
       ]);
-      setStatus(statusRes.data);
-      setPositions(posRes.data.positions || []);
-      setSentiment(sentRes.data);
-      setNews((newsRes.data.history || []).slice(0, 5));
+      if (statusRes) setStatus(statusRes.data);
+      if (posRes) setPositions(posRes.data.positions || []);
+      if (sentRes) setSentiment(sentRes.data);
+      if (newsRes) setNews((newsRes.data.history || []).slice(0, 5));
       if (accRes) setAccount(accRes.data);
     } catch (e) {
       console.error("Failed to fetch data:", e);
