@@ -13,8 +13,8 @@ type Props = {
 };
 
 const borderColorMap: Record<string, string> = {
-  bullish: "border-l-green-500/50",
-  bearish: "border-l-red-500/50",
+  bullish: "border-l-success/50 dark:border-l-green-500/50",
+  bearish: "border-l-destructive/50",
   neutral: "border-l-muted-foreground/30",
 };
 
@@ -24,17 +24,17 @@ export default function NewsCard({ headline, source, time, sentimentLabel, senti
   return (
     <div
       className={cn(
-        "flex items-start gap-3 rounded-lg glass glass-border border-l-2 p-3 transition-colors hover:bg-secondary/50",
+        "flex items-start gap-3 rounded-2xl border border-border border-l-2 p-3 transition-colors hover:bg-muted/50",
         borderColorMap[sentimentLabel] || borderColorMap.neutral
       )}
     >
       <Newspaper className="size-4 mt-0.5 text-muted-foreground shrink-0" />
       <div className="flex-1 min-w-0">
-        <p className="text-sm font-medium text-foreground truncate">{headline}</p>
+        <p className="text-sm font-semibold text-foreground truncate">{headline}</p>
         <div className="flex items-center gap-2 mt-1.5">
-          <span className="text-[11px] text-muted-foreground">{source}</span>
+          <span className="text-[11px] text-muted-foreground font-medium">{source}</span>
           <span className="text-[11px] text-muted-foreground/40">·</span>
-          <span className="text-[11px] text-muted-foreground">{timeAgo}</span>
+          <span className="text-[11px] text-muted-foreground font-medium">{timeAgo}</span>
         </div>
       </div>
       <SentimentBadge label={sentimentLabel} score={sentimentScore} size="sm" />

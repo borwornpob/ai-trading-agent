@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Globe, TrendingUp, TrendingDown, Calendar, RefreshCw, ArrowRightLeft } from "lucide-react";
+import { Globe, Calendar, RefreshCw, ArrowRightLeft } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { getMacroLatest, getMacroCorrelations, getMacroEvents, collectMacro } from "@/lib/api";
 
@@ -46,8 +46,8 @@ export default function MacroPage() {
       <div className="p-6 space-y-6">
         <Skeleton className="h-8 w-48" />
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <Skeleton className="h-60 rounded-xl" />
-          <Skeleton className="h-60 rounded-xl" />
+          <Skeleton className="h-60 rounded-2xl" />
+          <Skeleton className="h-60 rounded-2xl" />
         </div>
       </div>
     );
@@ -59,17 +59,17 @@ export default function MacroPage() {
   return (
     <div className="p-6 space-y-6">
       <PageHeader title="Macro Data" subtitle="Economic indicators and gold correlations">
-        <Button onClick={handleCollect} disabled={collecting} variant="outline" size="sm">
+        <Button onClick={handleCollect} disabled={collecting} variant="outline" size="sm" className="rounded-full">
           <RefreshCw className={`size-4 mr-1.5 ${collecting ? "animate-spin" : ""}`} />
           {collecting ? "Collecting..." : "Refresh FRED Data"}
         </Button>
       </PageHeader>
 
       {/* Macro Snapshot */}
-      <Card className="bg-card border-border">
+      <Card>
         <CardHeader>
-          <CardTitle className="text-sm flex items-center gap-2">
-            <Globe className="size-4 text-primary" />
+          <CardTitle className="text-sm font-bold flex items-center gap-2">
+            <Globe className="size-4 text-primary-foreground dark:text-primary" />
             Economic Indicators (Latest)
           </CardTitle>
         </CardHeader>
@@ -77,18 +77,18 @@ export default function MacroPage() {
           {snapEntries.length > 0 ? (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
               {snapEntries.map(([id, data]) => (
-                <div key={id} className="glass glass-border rounded-lg p-4 space-y-1">
-                  <p className="text-xs text-muted-foreground">{data.name}</p>
-                  <p className="text-xl font-bold">{typeof data.value === "number" ? data.value.toFixed(2) : data.value}</p>
-                  <p className="text-[10px] text-muted-foreground">{data.date}</p>
+                <div key={id} className="border border-border rounded-2xl p-4 space-y-1">
+                  <p className="text-xs text-muted-foreground font-medium">{data.name}</p>
+                  <p className="text-xl font-black">{typeof data.value === "number" ? data.value.toFixed(2) : data.value}</p>
+                  <p className="text-[10px] text-muted-foreground font-medium">{data.date}</p>
                 </div>
               ))}
             </div>
           ) : (
             <div className="text-center py-8 space-y-3">
               <Globe className="size-10 text-muted-foreground/20 mx-auto" />
-              <p className="text-sm text-muted-foreground">No macro data yet</p>
-              <Button onClick={handleCollect} disabled={collecting} className="gold-gradient text-gold-foreground font-semibold hover:opacity-90">
+              <p className="text-sm text-muted-foreground font-medium">No macro data yet</p>
+              <Button onClick={handleCollect} disabled={collecting} className="rounded-full bg-primary text-primary-foreground font-semibold hover-scale">
                 <RefreshCw className="size-4 mr-1.5" />
                 Collect from FRED
               </Button>
@@ -99,10 +99,10 @@ export default function MacroPage() {
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {/* Correlations */}
-        <Card className="bg-card border-border">
+        <Card>
           <CardHeader>
-            <CardTitle className="text-sm flex items-center gap-2">
-              <ArrowRightLeft className="size-4 text-primary" />
+            <CardTitle className="text-sm font-bold flex items-center gap-2">
+              <ArrowRightLeft className="size-4 text-primary-foreground dark:text-primary" />
               Gold Correlations (90 days)
             </CardTitle>
           </CardHeader>
@@ -117,10 +117,10 @@ export default function MacroPage() {
                   return (
                     <div key={id} className="space-y-1">
                       <div className="flex items-center justify-between">
-                        <span className="text-xs">{data.name}</span>
+                        <span className="text-xs font-semibold">{data.name}</span>
                         <div className="flex items-center gap-2">
-                          <Badge variant="outline" className="text-[10px]">{data.data_points} pts</Badge>
-                          <span className={`text-sm font-mono font-bold ${isNeg ? "text-destructive" : "text-success"}`}>
+                          <Badge variant="outline" className="text-[10px] rounded-full">{data.data_points} pts</Badge>
+                          <span className={`text-sm font-mono font-bold ${isNeg ? "text-destructive" : "text-success dark:text-green-400"}`}>
                             {corr > 0 ? "+" : ""}{corr.toFixed(3)}
                           </span>
                         </div>
@@ -128,27 +128,27 @@ export default function MacroPage() {
                       <div className="flex items-center gap-2">
                         <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden">
                           <div
-                            className={`h-full rounded-full ${isNeg ? "bg-destructive" : "bg-success"}`}
+                            className={`h-full rounded-full ${isNeg ? "bg-destructive" : "bg-success dark:bg-green-400"}`}
                             style={{ width: `${absCorr * 100}%` }}
                           />
                         </div>
-                        <span className="text-[10px] text-muted-foreground w-16 text-right">{strength}</span>
+                        <span className="text-[10px] text-muted-foreground w-16 text-right font-medium">{strength}</span>
                       </div>
                     </div>
                   );
                 })}
               </div>
             ) : (
-              <p className="text-sm text-muted-foreground text-center py-8">Collect macro data to see correlations</p>
+              <p className="text-sm text-muted-foreground text-center py-8 font-medium">Collect macro data to see correlations</p>
             )}
           </CardContent>
         </Card>
 
         {/* Events */}
-        <Card className="bg-card border-border">
+        <Card>
           <CardHeader>
-            <CardTitle className="text-sm flex items-center gap-2">
-              <Calendar className="size-4 text-primary" />
+            <CardTitle className="text-sm font-bold flex items-center gap-2">
+              <Calendar className="size-4 text-primary-foreground dark:text-primary" />
               Upcoming Economic Events
             </CardTitle>
           </CardHeader>
@@ -160,30 +160,30 @@ export default function MacroPage() {
                     (new Date(event.date).getTime() - Date.now()) / (1000 * 60 * 60 * 24)
                   );
                   return (
-                    <div key={i} className="glass glass-border rounded-lg p-3 space-y-1">
+                    <div key={i} className="border border-border rounded-2xl p-3 space-y-1">
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2">
-                          <Badge className={
-                            event.type === "FOMC" ? "bg-purple-500/20 text-purple-400" :
-                            event.type === "NFP" ? "bg-blue-500/20 text-blue-400" :
-                            "bg-orange-500/20 text-orange-400"
-                          }>
+                          <Badge className={`rounded-full font-semibold ${
+                            event.type === "FOMC" ? "bg-purple-100 text-purple-700 dark:bg-purple-500/20 dark:text-purple-400" :
+                            event.type === "NFP" ? "bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-400" :
+                            "bg-orange-100 text-orange-700 dark:bg-orange-500/20 dark:text-orange-400"
+                          }`}>
                             {event.type}
                           </Badge>
-                          <span className="text-sm font-medium">{event.name}</span>
+                          <span className="text-sm font-semibold">{event.name}</span>
                         </div>
-                        <span className="text-xs text-muted-foreground">
+                        <span className="text-xs text-muted-foreground font-medium">
                           {daysUntil <= 0 ? "Today" : daysUntil === 1 ? "Tomorrow" : `${daysUntil}d`}
                         </span>
                       </div>
-                      <p className="text-[11px] text-muted-foreground">{event.note}</p>
-                      <p className="text-[10px] text-muted-foreground/60">{event.date}</p>
+                      <p className="text-[11px] text-muted-foreground font-medium">{event.note}</p>
+                      <p className="text-[10px] text-muted-foreground/60 font-medium">{event.date}</p>
                     </div>
                   );
                 })}
               </div>
             ) : (
-              <p className="text-sm text-muted-foreground text-center py-8">No upcoming events</p>
+              <p className="text-sm text-muted-foreground text-center py-8 font-medium">No upcoming events</p>
             )}
           </CardContent>
         </Card>

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useTheme } from "next-themes";
 import { createChart, IChartApi, ISeriesApi, CandlestickData, ColorType, CandlestickSeries, LineSeries } from "lightweight-charts";
 import { getOHLCV } from "@/lib/api";
 
@@ -35,46 +36,46 @@ export default function PriceChart({ symbol, timeframe, tick, emaFast = 20, emaS
   const emaFastRef = useRef<ISeriesApi<"Line"> | null>(null);
   const emaSlowRef = useRef<ISeriesApi<"Line"> | null>(null);
   const [loading, setLoading] = useState(true);
-
-  // Store last candle from OHLCV for live updating
   const lastCandleRef = useRef<{ time: number; open: number; high: number; low: number; close: number } | null>(null);
   const initialLoadRef = useRef(true);
+  const { resolvedTheme } = useTheme();
 
-  // Create chart
+  const isDark = resolvedTheme === "dark";
+
   useEffect(() => {
     if (!containerRef.current) return;
 
     const chart = createChart(containerRef.current, {
       layout: {
         background: { type: ColorType.Solid, color: "transparent" },
-        textColor: "#8a8fa0",
+        textColor: isDark ? "#868685" : "#454745",
         fontSize: 11,
       },
       grid: {
-        vertLines: { color: "rgba(255,255,255,0.04)" },
-        horzLines: { color: "rgba(255,255,255,0.04)" },
+        vertLines: { color: isDark ? "rgba(232,235,230,0.04)" : "rgba(14,15,12,0.06)" },
+        horzLines: { color: isDark ? "rgba(232,235,230,0.04)" : "rgba(14,15,12,0.06)" },
       },
       crosshair: {
-        vertLine: { color: "rgba(212,175,55,0.3)", labelBackgroundColor: "#d4af37" },
-        horzLine: { color: "rgba(212,175,55,0.3)", labelBackgroundColor: "#d4af37" },
+        vertLine: { color: isDark ? "rgba(159,232,112,0.3)" : "rgba(22,51,0,0.2)", labelBackgroundColor: "#9fe870" },
+        horzLine: { color: isDark ? "rgba(159,232,112,0.3)" : "rgba(22,51,0,0.2)", labelBackgroundColor: "#9fe870" },
       },
       rightPriceScale: {
-        borderColor: "rgba(255,255,255,0.08)",
+        borderColor: isDark ? "rgba(232,235,230,0.08)" : "rgba(14,15,12,0.08)",
       },
       timeScale: {
-        borderColor: "rgba(255,255,255,0.08)",
+        borderColor: isDark ? "rgba(232,235,230,0.08)" : "rgba(14,15,12,0.08)",
         timeVisible: true,
         secondsVisible: false,
       },
     });
 
     const series = chart.addSeries(CandlestickSeries, {
-      upColor: "#22c55e",
-      downColor: "#ef4444",
-      borderDownColor: "#ef4444",
-      borderUpColor: "#22c55e",
-      wickDownColor: "#ef4444",
-      wickUpColor: "#22c55e",
+      upColor: isDark ? "#4ade80" : "#054d28",
+      downColor: "#d03238",
+      borderDownColor: "#d03238",
+      borderUpColor: isDark ? "#4ade80" : "#054d28",
+      wickDownColor: "#d03238",
+      wickUpColor: isDark ? "#4ade80" : "#054d28",
     });
 
     const emaFastSeries = chart.addSeries(LineSeries, {
@@ -112,9 +113,8 @@ export default function PriceChart({ symbol, timeframe, tick, emaFast = 20, emaS
       emaFastRef.current = null;
       emaSlowRef.current = null;
     };
-  }, []);
+  }, [isDark]);
 
-  // Fetch candle data
   useEffect(() => {
     let cancelled = false;
 
@@ -126,7 +126,6 @@ export default function PriceChart({ symbol, timeframe, tick, emaFast = 20, emaS
         if (candles.length > 0) {
           seriesRef.current.setData(candles);
 
-          // Calculate and set EMA overlays
           const closeData = candles.map((c) => ({
             time: c.time as number,
             close: c.close as number,
@@ -144,7 +143,6 @@ export default function PriceChart({ symbol, timeframe, tick, emaFast = 20, emaS
             chartRef.current?.timeScale().fitContent();
             initialLoadRef.current = false;
           }
-          // Save last candle for live updates
           const last = candles[candles.length - 1];
           lastCandleRef.current = {
             time: last.time as number,
@@ -166,14 +164,12 @@ export default function PriceChart({ symbol, timeframe, tick, emaFast = 20, emaS
     return () => { cancelled = true; clearInterval(interval); };
   }, [timeframe, emaFast, emaSlow]);
 
-  // Update last candle from tick — use the same time as the last OHLCV candle
   useEffect(() => {
     if (!tick || !seriesRef.current || !lastCandleRef.current) return;
 
     const price = tick.bid;
     const candle = lastCandleRef.current;
 
-    // Update high/low/close of the current candle
     candle.high = Math.max(candle.high, price);
     candle.low = Math.min(candle.low, price);
     candle.close = price;
@@ -195,7 +191,7 @@ export default function PriceChart({ symbol, timeframe, tick, emaFast = 20, emaS
     <div className="relative w-full h-full min-h-[220px]">
       {loading && (
         <div className="absolute inset-0 flex items-center justify-center z-10">
-          <span className="text-muted-foreground text-sm">Loading {symbol} chart...</span>
+          <span className="text-muted-foreground text-sm font-medium">Loading {symbol} chart...</span>
         </div>
       )}
       <div ref={containerRef} className="w-full h-full" />

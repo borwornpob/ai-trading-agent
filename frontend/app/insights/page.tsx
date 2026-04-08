@@ -10,22 +10,11 @@ import { GoldGauge } from "@/components/ui/gold-gauge";
 import SentimentBadge from "@/components/ai/SentimentBadge";
 import OptimizationReport from "@/components/ai/OptimizationReport";
 import {
-  getLatestSentiment,
-  getSentimentHistory,
-  getOptimizationReport,
-  runOptimization,
-  applyOptimization,
-  getBotStatus,
+  getLatestSentiment, getSentimentHistory, getOptimizationReport,
+  runOptimization, applyOptimization, getBotStatus,
 } from "@/lib/api";
 import {
-  AreaChart,
-  Area,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-  ReferenceLine,
+  AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine,
 } from "recharts";
 
 export default function InsightsPage() {
@@ -71,8 +60,8 @@ export default function InsightsPage() {
       <div className="p-6 space-y-6">
         <Skeleton className="h-8 w-48" />
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <Skeleton className="h-80 rounded-xl" />
-          <Skeleton className="h-80 rounded-xl" />
+          <Skeleton className="h-80 rounded-2xl" />
+          <Skeleton className="h-80 rounded-2xl" />
         </div>
       </div>
     );
@@ -84,10 +73,10 @@ export default function InsightsPage() {
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {/* Sentiment */}
-        <Card className="bg-card border-border">
+        <Card>
           <CardHeader>
-            <CardTitle className="text-sm flex items-center gap-2">
-              <Brain className="size-4 text-primary" />
+            <CardTitle className="text-sm font-bold flex items-center gap-2">
+              <Brain className="size-4 text-primary-foreground dark:text-primary" />
               Current Sentiment
             </CardTitle>
           </CardHeader>
@@ -95,31 +84,19 @@ export default function InsightsPage() {
             {sentiment ? (
               <>
                 <div className="flex justify-center pt-2">
-                  <GoldGauge
-                    value={sentiment.score}
-                    label={sentiment.label}
-                    size={200}
-                  />
+                  <GoldGauge value={sentiment.score} label={sentiment.label} size={200} />
                 </div>
 
                 <div className="flex justify-center">
-                  <SentimentBadge
-                    label={sentiment.label}
-                    score={sentiment.score}
-                    confidence={sentiment.confidence}
-                    size="lg"
-                  />
+                  <SentimentBadge label={sentiment.label} score={sentiment.score} confidence={sentiment.confidence} size="lg" />
                 </div>
 
                 {sentiment.key_factors.length > 0 && (
                   <div className="space-y-2">
-                    <p className="text-xs text-muted-foreground">Key Factors</p>
+                    <p className="text-xs text-muted-foreground font-semibold">Key Factors</p>
                     <div className="flex flex-wrap gap-2">
                       {sentiment.key_factors.map((f, i) => (
-                        <span
-                          key={i}
-                          className="text-xs glass glass-border px-3 py-1.5 rounded-full text-foreground"
-                        >
+                        <span key={i} className="text-xs border border-border bg-card px-3 py-1.5 rounded-full text-foreground font-medium">
                           {f}
                         </span>
                       ))}
@@ -127,12 +104,12 @@ export default function InsightsPage() {
                   </div>
                 )}
 
-                <p className="text-[11px] text-muted-foreground/60 text-center">
+                <p className="text-[11px] text-muted-foreground/60 text-center font-medium">
                   Updated: {new Date(sentiment.analyzed_at).toLocaleString()}
                 </p>
               </>
             ) : (
-              <p className="text-sm text-muted-foreground text-center py-12">
+              <p className="text-sm text-muted-foreground text-center py-12 font-medium">
                 No sentiment data available
               </p>
             )}
@@ -140,9 +117,9 @@ export default function InsightsPage() {
         </Card>
 
         {/* History Chart */}
-        <Card className="bg-card border-border">
+        <Card>
           <CardHeader>
-            <CardTitle className="text-sm">Sentiment History (7 days)</CardTitle>
+            <CardTitle className="text-sm font-bold">Sentiment History (7 days)</CardTitle>
           </CardHeader>
           <CardContent>
             {chartData.length > 0 ? (
@@ -150,38 +127,29 @@ export default function InsightsPage() {
                 <AreaChart data={chartData}>
                   <defs>
                     <linearGradient id="sentimentGradient" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="oklch(0.80 0.15 85)" stopOpacity={0.2} />
-                      <stop offset="100%" stopColor="oklch(0.80 0.15 85)" stopOpacity={0} />
+                      <stop offset="0%" stopColor="#9fe870" stopOpacity={0.2} />
+                      <stop offset="100%" stopColor="#9fe870" stopOpacity={0} />
                     </linearGradient>
                   </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="oklch(1 0 0 / 6%)" />
-                  <XAxis dataKey="time" stroke="oklch(0.60 0.01 250)" fontSize={10} />
-                  <YAxis domain={[-1, 1]} stroke="oklch(0.60 0.01 250)" fontSize={10} />
+                  <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+                  <XAxis dataKey="time" className="fill-muted-foreground" fontSize={10} />
+                  <YAxis domain={[-1, 1]} className="fill-muted-foreground" fontSize={10} />
                   <Tooltip
                     contentStyle={{
-                      backgroundColor: "oklch(0.16 0.008 250 / 90%)",
-                      border: "1px solid oklch(1 0 0 / 8%)",
-                      borderRadius: "8px",
-                      backdropFilter: "blur(12px)",
+                      backgroundColor: "var(--popover)",
+                      border: "1px solid var(--border)",
+                      borderRadius: "12px",
+                      color: "var(--foreground)",
                     }}
-                    labelStyle={{ color: "oklch(0.60 0.01 250)" }}
-                    itemStyle={{ color: "oklch(0.93 0.01 80)" }}
                   />
-                  <ReferenceLine y={0.3} stroke="#4ade80" strokeDasharray="3 3" strokeOpacity={0.3} />
-                  <ReferenceLine y={-0.3} stroke="#f87171" strokeDasharray="3 3" strokeOpacity={0.3} />
-                  <ReferenceLine y={0} stroke="oklch(0.60 0.01 250)" strokeDasharray="3 3" strokeOpacity={0.5} />
-                  <Area
-                    type="monotone"
-                    dataKey="score"
-                    stroke="oklch(0.80 0.15 85)"
-                    strokeWidth={2}
-                    fill="url(#sentimentGradient)"
-                    dot={{ fill: "oklch(0.80 0.15 85)", r: 2 }}
-                  />
+                  <ReferenceLine y={0.3} stroke="#054d28" strokeDasharray="3 3" strokeOpacity={0.3} />
+                  <ReferenceLine y={-0.3} stroke="#d03238" strokeDasharray="3 3" strokeOpacity={0.3} />
+                  <ReferenceLine y={0} className="stroke-muted-foreground" strokeDasharray="3 3" strokeOpacity={0.5} />
+                  <Area type="monotone" dataKey="score" stroke="#9fe870" strokeWidth={2} fill="url(#sentimentGradient)" dot={{ fill: "#9fe870", r: 2 }} />
                 </AreaChart>
               </ResponsiveContainer>
             ) : (
-              <p className="text-sm text-muted-foreground text-center py-20">
+              <p className="text-sm text-muted-foreground text-center py-20 font-medium">
                 No history data
               </p>
             )}
@@ -205,13 +173,13 @@ export default function InsightsPage() {
               onApply={handleApply}
             />
           ) : (
-            <Card className="bg-card border-border">
+            <Card>
               <CardContent className="py-12 text-center space-y-4">
-                <Sparkles className="size-10 text-primary/40 mx-auto" />
-                <p className="text-sm text-muted-foreground">No optimization runs yet</p>
+                <Sparkles className="size-10 text-muted-foreground/40 mx-auto" />
+                <p className="text-sm text-muted-foreground font-medium">No optimization runs yet</p>
                 <Button
                   onClick={handleRunOptimization}
-                  className="gold-gradient text-gold-foreground font-semibold hover:opacity-90"
+                  className="rounded-full bg-primary text-primary-foreground font-semibold hover-scale"
                 >
                   <Sparkles className="size-4 mr-1.5" />
                   Run Optimization
@@ -221,17 +189,17 @@ export default function InsightsPage() {
           )}
         </div>
 
-        <Card className="bg-card border-border">
+        <Card>
           <CardHeader>
-            <CardTitle className="text-sm flex items-center gap-2">
-              <BarChart3 className="size-4 text-primary" />
+            <CardTitle className="text-sm font-bold flex items-center gap-2">
+              <BarChart3 className="size-4 text-primary-foreground dark:text-primary" />
               AI Performance Attribution
             </CardTitle>
           </CardHeader>
           <CardContent>
             <div className="flex flex-col items-center justify-center py-12 space-y-3">
               <BarChart3 className="size-10 text-muted-foreground/20" />
-              <p className="text-sm text-muted-foreground text-center max-w-xs">
+              <p className="text-sm text-muted-foreground text-center max-w-xs font-medium">
                 Performance attribution will appear after enough trades with AI filter enabled
               </p>
             </div>

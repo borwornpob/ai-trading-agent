@@ -16,7 +16,6 @@ export function GoldGauge({
   className,
 }: GoldGaugeProps) {
   const clampedValue = Math.max(-1, Math.min(1, value));
-  // Map -1..1 to 0..180 degrees (left to right arc)
   const angle = ((clampedValue + 1) / 2) * 180;
   const r = size * 0.38;
   const cx = size / 2;
@@ -24,7 +23,6 @@ export function GoldGauge({
   const startAngle = Math.PI;
   const endAngle = 0;
 
-  // Arc path (semicircle from left to right)
   const arcStart = {
     x: cx + r * Math.cos(startAngle),
     y: cy - r * Math.sin(startAngle),
@@ -35,16 +33,15 @@ export function GoldGauge({
   };
   const arcPath = `M ${arcStart.x} ${arcStart.y} A ${r} ${r} 0 0 1 ${arcEnd.x} ${arcEnd.y}`;
 
-  // Needle position
   const needleAngle = Math.PI - (angle * Math.PI) / 180;
   const needleLen = r * 0.85;
   const needleX = cx + needleLen * Math.cos(needleAngle);
   const needleY = cy - needleLen * Math.sin(needleAngle);
 
   const getColor = () => {
-    if (clampedValue > 0.2) return { stroke: "#4ade80", text: "text-green-400" };
-    if (clampedValue < -0.2) return { stroke: "#f87171", text: "text-red-400" };
-    return { stroke: "oklch(0.80 0.15 85)", text: "text-primary" };
+    if (clampedValue > 0.2) return { stroke: "#054d28", text: "text-success dark:text-green-400", darkStroke: "#4ade80" };
+    if (clampedValue < -0.2) return { stroke: "#d03238", text: "text-destructive", darkStroke: "#f87171" };
+    return { stroke: "#9fe870", text: "text-primary-foreground dark:text-primary", darkStroke: "#9fe870" };
   };
 
   const colors = getColor();
@@ -56,11 +53,11 @@ export function GoldGauge({
         <path
           d={arcPath}
           fill="none"
-          stroke="oklch(0.22 0.008 250)"
+          className="stroke-muted"
           strokeWidth={8}
           strokeLinecap="round"
         />
-        {/* Colored arc up to needle */}
+        {/* Colored arc */}
         <path
           d={arcPath}
           fill="none"
@@ -68,31 +65,45 @@ export function GoldGauge({
           strokeWidth={8}
           strokeLinecap="round"
           strokeDasharray={`${(angle / 180) * Math.PI * r} ${Math.PI * r}`}
-          className="transition-all duration-700 ease-out"
+          className="transition-all duration-700 ease-out dark:hidden"
+        />
+        <path
+          d={arcPath}
+          fill="none"
+          stroke={colors.darkStroke}
+          strokeWidth={8}
+          strokeLinecap="round"
+          strokeDasharray={`${(angle / 180) * Math.PI * r} ${Math.PI * r}`}
+          className="transition-all duration-700 ease-out hidden dark:block"
         />
         {/* Needle */}
         <line
-          x1={cx}
-          y1={cy}
-          x2={needleX}
-          y2={needleY}
+          x1={cx} y1={cy} x2={needleX} y2={needleY}
           stroke={colors.stroke}
           strokeWidth={2.5}
           strokeLinecap="round"
-          className="transition-all duration-700 ease-out"
+          className="transition-all duration-700 ease-out dark:hidden"
+        />
+        <line
+          x1={cx} y1={cy} x2={needleX} y2={needleY}
+          stroke={colors.darkStroke}
+          strokeWidth={2.5}
+          strokeLinecap="round"
+          className="transition-all duration-700 ease-out hidden dark:block"
         />
         {/* Center dot */}
-        <circle cx={cx} cy={cy} r={4} fill={colors.stroke} />
+        <circle cx={cx} cy={cy} r={4} fill={colors.stroke} className="dark:hidden" />
+        <circle cx={cx} cy={cy} r={4} fill={colors.darkStroke} className="hidden dark:block" />
         {/* Labels */}
-        <text x={arcStart.x - 4} y={cy + 16} fill="oklch(0.60 0.01 250)" fontSize={10} textAnchor="middle">-1</text>
-        <text x={cx} y={cy - r - 8} fill="oklch(0.60 0.01 250)" fontSize={10} textAnchor="middle">0</text>
-        <text x={arcEnd.x + 4} y={cy + 16} fill="oklch(0.60 0.01 250)" fontSize={10} textAnchor="middle">+1</text>
+        <text x={arcStart.x - 4} y={cy + 16} className="fill-muted-foreground" fontSize={10} textAnchor="middle">-1</text>
+        <text x={cx} y={cy - r - 8} className="fill-muted-foreground" fontSize={10} textAnchor="middle">0</text>
+        <text x={arcEnd.x + 4} y={cy + 16} className="fill-muted-foreground" fontSize={10} textAnchor="middle">+1</text>
       </svg>
       <p className={cn("text-3xl font-bold font-mono mt-1", colors.text)}>
         {clampedValue > 0 ? "+" : ""}
         {clampedValue.toFixed(2)}
       </p>
-      <p className="text-xs uppercase tracking-wider text-muted-foreground mt-1">
+      <p className="text-xs uppercase tracking-wider text-muted-foreground font-semibold mt-1">
         {label}
       </p>
     </div>

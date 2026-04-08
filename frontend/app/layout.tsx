@@ -1,20 +1,14 @@
 import type { Metadata } from "next";
-import { Noto_Sans, Noto_Sans_Mono } from "next/font/google";
+import { Inter } from "next/font/google";
 import "./globals.css";
 import { Sidebar, MobileHeader } from "@/components/layout/Sidebar";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { ThemeProvider } from "@/components/theme-provider";
 
-const notoSans = Noto_Sans({
+const inter = Inter({
   variable: "--font-sans",
   subsets: ["latin"],
-  weight: ["400", "500", "600", "700"],
-  display: "swap",
-});
-
-const notoSansMono = Noto_Sans_Mono({
-  variable: "--font-mono",
-  subsets: ["latin"],
-  weight: ["400", "500", "600"],
+  weight: ["400", "500", "600", "700", "900"],
   display: "swap",
 });
 
@@ -29,18 +23,22 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html
-      lang="en"
-      className={`${notoSans.variable} ${notoSansMono.variable} h-full antialiased dark`}
-    >
+    <html lang="en" className={`${inter.variable} h-full antialiased`} suppressHydrationWarning>
       <body className="min-h-full flex flex-col lg:flex-row bg-background text-foreground">
-        <TooltipProvider>
-          <MobileHeader />
-          <Sidebar />
-          <main className="flex-1 overflow-auto">
-            <div className="max-w-[1400px] mx-auto">{children}</div>
-          </main>
-        </TooltipProvider>
+        <ThemeProvider
+          attribute="class"
+          defaultTheme="light"
+          enableSystem
+          disableTransitionOnChange
+        >
+          <TooltipProvider>
+            <MobileHeader />
+            <Sidebar />
+            <main className="flex-1 overflow-auto">
+              <div className="max-w-[1400px] mx-auto">{children}</div>
+            </main>
+          </TooltipProvider>
+        </ThemeProvider>
       </body>
     </html>
   );

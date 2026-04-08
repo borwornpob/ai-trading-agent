@@ -10,23 +10,10 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
+  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
 import {
-  Wallet,
-  TrendingUp,
-  Layers,
-  Activity,
-  Play,
-  Square,
-  ShieldAlert,
-  Wifi,
-  WifiOff,
+  Wallet, TrendingUp, Layers, Activity, Play, Square, ShieldAlert, Wifi, WifiOff,
 } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { StatCard } from "@/components/ui/stat-card";
@@ -35,15 +22,8 @@ import NewsCard from "@/components/ai/NewsCard";
 import PriceChart from "@/components/chart/PriceChart";
 import EventFeed from "@/components/dashboard/EventFeed";
 import {
-  getBotStatus,
-  startBot,
-  stopBot,
-  emergencyStop,
-  getPositions,
-  getLatestSentiment,
-  getSentimentHistory,
-  updateSettings,
-  getAccount,
+  getBotStatus, startBot, stopBot, emergencyStop, getPositions,
+  getLatestSentiment, getSentimentHistory, updateSettings, getAccount,
 } from "@/lib/api";
 import { useWebSocket } from "@/lib/websocket";
 import { useBotStore } from "@/store/botStore";
@@ -142,12 +122,12 @@ export default function DashboardPage() {
         <Skeleton className="h-8 w-48" />
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
           {Array.from({ length: 4 }).map((_, i) => (
-            <Skeleton key={i} className="h-24 sm:h-28 rounded-xl" />
+            <Skeleton key={i} className="h-24 sm:h-28 rounded-2xl" />
           ))}
         </div>
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 sm:gap-4">
-          <Skeleton className="h-60 sm:h-80 rounded-xl lg:col-span-2" />
-          <Skeleton className="h-60 sm:h-80 rounded-xl" />
+          <Skeleton className="h-60 sm:h-80 rounded-2xl lg:col-span-2" />
+          <Skeleton className="h-60 sm:h-80 rounded-2xl" />
         </div>
       </div>
     );
@@ -157,32 +137,32 @@ export default function DashboardPage() {
     <div className="p-3 sm:p-6 space-y-4 sm:space-y-6">
       <PageHeader title="Dashboard" subtitle="Real-time trading overview">
         {tick && (
-          <div className="glass glass-border rounded-full px-3 py-1.5 sm:px-4 sm:py-2 flex items-center gap-2 sm:gap-3">
-            <span className="text-[10px] sm:text-xs text-muted-foreground">XAUUSD</span>
-            <span className="text-xs sm:text-sm font-mono font-semibold text-primary">
+          <div className="border border-border rounded-full px-3 py-1.5 sm:px-4 sm:py-2 flex items-center gap-2 sm:gap-3 bg-card">
+            <span className="text-[10px] sm:text-xs text-muted-foreground font-medium">XAUUSD</span>
+            <span className="text-xs sm:text-sm font-mono font-bold text-foreground">
               {tick.bid.toFixed(2)}
             </span>
             <span className="text-[10px] text-muted-foreground">/</span>
             <span className="text-xs sm:text-sm font-mono text-muted-foreground">
               {tick.ask.toFixed(2)}
             </span>
-            <span className="hidden sm:inline text-[10px] text-muted-foreground">
+            <span className="hidden sm:inline text-[10px] text-muted-foreground font-medium">
               spd: {tick.spread.toFixed(1)}
             </span>
           </div>
         )}
         {status?.paper_trade && (
-          <Badge variant="outline" className="border-amber-400 text-amber-400 text-[10px]">
+          <Badge variant="outline" className="border-amber-500 text-amber-600 dark:text-amber-400 text-[10px] font-semibold">
             PAPER
           </Badge>
         )}
         <div className="flex items-center gap-1.5">
           {isConnected ? (
-            <Wifi className="size-3.5 text-green-400" />
+            <Wifi className="size-3.5 text-success dark:text-green-400" />
           ) : (
-            <WifiOff className="size-3.5 text-red-400" />
+            <WifiOff className="size-3.5 text-destructive" />
           )}
-          <span className="text-xs text-muted-foreground">
+          <span className="text-xs text-muted-foreground font-medium">
             {isConnected ? "Live" : "Offline"}
           </span>
         </div>
@@ -206,18 +186,18 @@ export default function DashboardPage() {
         />
       </div>
 
-      {/* Controls (mobile: above chart) + Price Chart */}
+      {/* Controls + Price Chart */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <Card className="order-1 lg:order-2 bg-card border-border">
+        <Card className="order-1 lg:order-2">
           <CardHeader className="p-3 sm:p-6">
-            <CardTitle className="text-sm">Controls</CardTitle>
+            <CardTitle className="text-sm font-bold">Controls</CardTitle>
           </CardHeader>
           <CardContent className="p-3 pt-0 sm:p-6 sm:pt-0 space-y-3 sm:space-y-4">
             <div className="flex gap-2">
               <Button
                 onClick={handleStart}
                 disabled={isRunning}
-                className="flex-1 gold-gradient text-gold-foreground font-semibold hover:opacity-90"
+                className="flex-1 rounded-full bg-primary text-primary-foreground font-semibold hover-scale"
               >
                 <Play className="size-4 mr-1.5" />
                 Start
@@ -226,7 +206,7 @@ export default function DashboardPage() {
                 onClick={handleStop}
                 disabled={!isRunning}
                 variant="secondary"
-                className="flex-1"
+                className="flex-1 rounded-full"
               >
                 <Square className="size-3.5 mr-1.5" />
                 Stop
@@ -235,7 +215,7 @@ export default function DashboardPage() {
             <Button
               onClick={handleEmergencyStop}
               variant="destructive"
-              className="w-full"
+              className="w-full rounded-full"
             >
               <ShieldAlert className="size-4 mr-1.5" />
               Emergency Stop
@@ -245,7 +225,7 @@ export default function DashboardPage() {
 
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-1">
               <div className="flex items-center justify-between">
-                <span className="text-sm text-muted-foreground">Paper Trade</span>
+                <span className="text-sm text-muted-foreground font-medium">Paper Trade</span>
                 <Switch
                   checked={status?.paper_trade ?? false}
                   onCheckedChange={async (v) => { await updateSettings({ paper_trade: v }); fetchData(); }}
@@ -253,7 +233,7 @@ export default function DashboardPage() {
               </div>
 
               <div className="flex items-center justify-between">
-                <span className="text-sm text-muted-foreground">AI Filter</span>
+                <span className="text-sm text-muted-foreground font-medium">AI Filter</span>
                 <Switch
                   checked={status?.use_ai_filter ?? true}
                   onCheckedChange={handleAIFilterToggle}
@@ -262,22 +242,22 @@ export default function DashboardPage() {
             </div>
 
             {status?.paper_trade && (
-              <p className="text-[10px] text-amber-400 bg-amber-400/10 rounded px-2 py-1">
+              <p className="text-[10px] text-amber-600 dark:text-amber-400 bg-amber-100 dark:bg-amber-400/10 rounded-xl px-3 py-1.5 font-medium">
                 Paper mode — no real orders sent to MT5
               </p>
             )}
 
             <div className="space-y-2 text-xs text-muted-foreground">
               <div className="flex justify-between">
-                <span>Strategy</span>
-                <span className="text-foreground font-medium">{status?.strategy || "—"}</span>
+                <span className="font-medium">Strategy</span>
+                <span className="text-foreground font-semibold">{status?.strategy || "—"}</span>
               </div>
               <div className="flex justify-between">
-                <span>Symbol</span>
-                <span className="text-foreground font-medium">{status?.symbol || "—"}</span>
+                <span className="font-medium">Symbol</span>
+                <span className="text-foreground font-semibold">{status?.symbol || "—"}</span>
               </div>
               <div className="flex items-center justify-between">
-                <span>Timeframe</span>
+                <span className="font-medium">Timeframe</span>
                 <Select
                   value={status?.timeframe || "M15"}
                   onValueChange={async (v) => { if (v) { await updateSettings({ timeframe: v }); fetchData(); } }}
@@ -296,22 +276,22 @@ export default function DashboardPage() {
           </CardContent>
         </Card>
 
-        <Card className="order-2 lg:order-1 lg:col-span-2 bg-card border-border border-t-2 border-t-primary">
+        <Card className="order-2 lg:order-1 lg:col-span-2">
           <CardHeader className="p-3 sm:p-6">
-            <CardTitle className="text-sm flex items-center justify-between">
+            <CardTitle className="text-sm font-bold flex items-center justify-between">
               <div className="flex items-center gap-2 sm:gap-3">
                 <span>{status?.symbol || "GOLD"}</span>
                 {sentiment && (
                   <SentimentBadge label={sentiment.label} score={sentiment.score} size="sm" />
                 )}
               </div>
-              <div className="flex gap-0.5 bg-muted/50 rounded-md p-0.5">
+              <div className="flex gap-0.5 bg-muted rounded-xl p-0.5">
                 {["M1", "M5", "M15", "H1", "H4", "D1"].map((tf) => (
                   <button
                     key={tf}
                     type="button"
                     onClick={() => setChartTimeframe(tf)}
-                    className={`px-1.5 sm:px-2 py-0.5 rounded text-[10px] font-medium transition-colors ${
+                    className={`px-1.5 sm:px-2 py-0.5 rounded-lg text-[10px] font-semibold transition-colors ${
                       chartTimeframe === tf
                         ? "bg-primary text-primary-foreground"
                         : "text-muted-foreground hover:text-foreground"
@@ -335,9 +315,9 @@ export default function DashboardPage() {
 
       {/* News + Positions + Events */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        <Card className="bg-card border-border">
+        <Card>
           <CardHeader className="p-3 sm:p-6">
-            <CardTitle className="text-sm">News Feed</CardTitle>
+            <CardTitle className="text-sm font-bold">News Feed</CardTitle>
           </CardHeader>
           <CardContent className="p-3 pt-0 sm:p-6 sm:pt-0">
             <ScrollArea className="h-48 sm:h-64">
@@ -354,7 +334,7 @@ export default function DashboardPage() {
                     />
                   ))
                 ) : (
-                  <p className="text-sm text-muted-foreground text-center py-8">
+                  <p className="text-sm text-muted-foreground text-center py-8 font-medium">
                     No recent news
                   </p>
                 )}
@@ -363,9 +343,9 @@ export default function DashboardPage() {
           </CardContent>
         </Card>
 
-        <Card className="bg-card border-border">
+        <Card>
           <CardHeader className="p-3 sm:p-6">
-            <CardTitle className="text-sm">Open Positions</CardTitle>
+            <CardTitle className="text-sm font-bold">Open Positions</CardTitle>
           </CardHeader>
           <CardContent className="p-3 pt-0 sm:p-6 sm:pt-0">
             {positions.length > 0 ? (
@@ -373,20 +353,20 @@ export default function DashboardPage() {
                 <ScrollArea className="h-48 sm:h-64">
                   <Table className="min-w-[480px]">
                     <TableHeader>
-                      <TableRow className="border-border hover:bg-transparent">
-                        <TableHead className="text-muted-foreground">Type</TableHead>
-                        <TableHead className="text-right text-muted-foreground">Lots</TableHead>
-                        <TableHead className="text-right text-muted-foreground">Entry</TableHead>
-                        <TableHead className="text-right text-muted-foreground">SL</TableHead>
-                        <TableHead className="text-right text-muted-foreground">TP</TableHead>
-                        <TableHead className="text-right text-muted-foreground">P&L</TableHead>
+                      <TableRow>
+                        <TableHead>Type</TableHead>
+                        <TableHead className="text-right">Lots</TableHead>
+                        <TableHead className="text-right">Entry</TableHead>
+                        <TableHead className="text-right">SL</TableHead>
+                        <TableHead className="text-right">TP</TableHead>
+                        <TableHead className="text-right">P&L</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {positions.map((p) => (
-                        <TableRow key={p.ticket} className="border-border/50">
+                        <TableRow key={p.ticket}>
                           <TableCell
-                            className={`font-medium ${p.type === "BUY" ? "text-green-400" : "text-red-400"}`}
+                            className={`font-semibold ${p.type === "BUY" ? "text-success dark:text-green-400" : "text-destructive"}`}
                           >
                             {p.type}
                           </TableCell>
@@ -399,7 +379,7 @@ export default function DashboardPage() {
                             {p.tp.toFixed(2)}
                           </TableCell>
                           <TableCell
-                            className={`text-right font-mono font-medium ${p.profit >= 0 ? "text-green-400" : "text-red-400"}`}
+                            className={`text-right font-mono font-semibold ${p.profit >= 0 ? "text-success dark:text-green-400" : "text-destructive"}`}
                           >
                             {p.profit >= 0 ? "+" : ""}
                             {p.profit.toFixed(2)}
@@ -411,16 +391,16 @@ export default function DashboardPage() {
                 </ScrollArea>
               </div>
             ) : (
-              <p className="text-sm text-muted-foreground text-center py-8">
+              <p className="text-sm text-muted-foreground text-center py-8 font-medium">
                 No open positions
               </p>
             )}
           </CardContent>
         </Card>
 
-        <Card className="bg-card border-border md:col-span-2 lg:col-span-1">
+        <Card className="md:col-span-2 lg:col-span-1">
           <CardHeader className="p-3 sm:p-6">
-            <CardTitle className="text-sm">Events</CardTitle>
+            <CardTitle className="text-sm font-bold">Events</CardTitle>
           </CardHeader>
           <CardContent className="p-3 pt-0 sm:p-6 sm:pt-0">
             <EventFeed events={events} />

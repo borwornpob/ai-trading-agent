@@ -8,17 +8,12 @@ import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { Progress } from "@/components/ui/progress";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Save, FlaskConical, RotateCcw, Check } from "lucide-react";
+import { Save, FlaskConical, Check } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { StatCard } from "@/components/ui/stat-card";
 import { BarChart3, TrendingUp, Target, AlertTriangle } from "lucide-react";
 import {
-  getBotStatus,
-  getAvailableStrategies,
-  getCurrentStrategy,
-  updateStrategy,
-  updateSettings,
-  runBacktest,
+  getBotStatus, getAvailableStrategies, getCurrentStrategy, updateStrategy, updateSettings, runBacktest,
 } from "@/lib/api";
 
 const strategyDescriptions: Record<string, string> = {
@@ -65,19 +60,13 @@ export default function StrategyPage() {
     }
     if (selectedStrategy === "breakout") {
       return {
-        lookback: params.lookback,
-        atr_period: params.atr_period,
-        atr_threshold: params.atr_threshold,
-        volume_filter: params.volume_filter,
+        lookback: params.lookback, atr_period: params.atr_period,
+        atr_threshold: params.atr_threshold, volume_filter: params.volume_filter,
       };
     }
-    // RSI Filter uses ema_fast/ema_slow instead of fast_period/slow_period
     return {
-      ema_fast: params.fast_period,
-      ema_slow: params.slow_period,
-      rsi_period: params.rsi_period,
-      rsi_overbought: params.rsi_overbought,
-      rsi_oversold: params.rsi_oversold,
+      ema_fast: params.fast_period, ema_slow: params.slow_period,
+      rsi_period: params.rsi_period, rsi_overbought: params.rsi_overbought, rsi_oversold: params.rsi_oversold,
     };
   };
 
@@ -110,16 +99,14 @@ export default function StrategyPage() {
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {/* Strategy */}
-        <Card className="bg-card border-border">
+        <Card>
           <CardHeader>
-            <CardTitle className="text-sm">Trading Strategy</CardTitle>
+            <CardTitle className="text-sm font-bold">Trading Strategy</CardTitle>
           </CardHeader>
           <CardContent className="space-y-5">
             <div className="space-y-2">
               <Select value={selectedStrategy} onValueChange={(v) => v && setSelectedStrategy(v)}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
+                <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
                   {strategies.map((s) => (
                     <SelectItem key={s.name} value={s.name}>
@@ -128,7 +115,7 @@ export default function StrategyPage() {
                   ))}
                 </SelectContent>
               </Select>
-              <p className="text-xs text-muted-foreground leading-relaxed">
+              <p className="text-xs text-muted-foreground leading-relaxed font-medium">
                 {strategyDescriptions[selectedStrategy] || "Custom strategy"}
               </p>
             </div>
@@ -161,7 +148,7 @@ export default function StrategyPage() {
                   <ParamSlider label="ATR Threshold" value={params.atr_threshold} min={0.1} max={2.0} step={0.1}
                     onChange={(v) => setParams({ ...params, atr_threshold: v })} />
                   <div className="flex items-center justify-between">
-                    <span className="text-sm text-muted-foreground">Volume Filter</span>
+                    <span className="text-sm text-muted-foreground font-medium">Volume Filter</span>
                     <Switch
                       checked={params.volume_filter}
                       onCheckedChange={(v) => setParams({ ...params, volume_filter: v })}
@@ -175,9 +162,9 @@ export default function StrategyPage() {
 
         <div className="space-y-6">
           {/* Risk */}
-          <Card className="bg-card border-border">
+          <Card>
             <CardHeader>
-              <CardTitle className="text-sm">Risk Management</CardTitle>
+              <CardTitle className="text-sm font-bold">Risk Management</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
               <ParamSlider label="Risk per Trade %" value={riskParams.risk_per_trade} min={0.1} max={5} step={0.1}
@@ -185,7 +172,7 @@ export default function StrategyPage() {
               <ParamSlider label="Max Daily Loss %" value={riskParams.max_daily_loss} min={1} max={10} step={0.5}
                 onChange={(v) => setRiskParams({ ...riskParams, max_daily_loss: v })} />
               <div className="flex items-center justify-between">
-                <span className="text-sm text-muted-foreground">Max Concurrent Trades</span>
+                <span className="text-sm text-muted-foreground font-medium">Max Concurrent Trades</span>
                 <Input
                   type="number"
                   value={riskParams.max_concurrent}
@@ -195,8 +182,8 @@ export default function StrategyPage() {
               </div>
               <div className="space-y-1.5 pt-2">
                 <div className="flex items-center justify-between text-xs">
-                  <span className="text-muted-foreground">Risk Level</span>
-                  <span className={riskLevel > 60 ? "text-red-400" : riskLevel > 30 ? "text-amber-400" : "text-green-400"}>
+                  <span className="text-muted-foreground font-medium">Risk Level</span>
+                  <span className={`font-semibold ${riskLevel > 60 ? "text-destructive" : riskLevel > 30 ? "text-amber-600 dark:text-amber-400" : "text-success dark:text-green-400"}`}>
                     {riskLevel > 60 ? "Aggressive" : riskLevel > 30 ? "Moderate" : "Conservative"}
                   </span>
                 </div>
@@ -206,13 +193,13 @@ export default function StrategyPage() {
           </Card>
 
           {/* AI */}
-          <Card className="bg-card border-border">
+          <Card>
             <CardHeader>
-              <CardTitle className="text-sm">AI Settings</CardTitle>
+              <CardTitle className="text-sm font-bold">AI Settings</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="flex items-center justify-between">
-                <span className="text-sm text-muted-foreground">Enable AI Sentiment Filter</span>
+                <span className="text-sm text-muted-foreground font-medium">Enable AI Sentiment Filter</span>
                 <Switch
                   checked={aiSettings.use_ai_filter}
                   onCheckedChange={(v) => setAiSettings({ ...aiSettings, use_ai_filter: v })}
@@ -221,7 +208,7 @@ export default function StrategyPage() {
               <ParamSlider label="Confidence Threshold" value={aiSettings.confidence_threshold}
                 min={0.5} max={0.9} step={0.05}
                 onChange={(v) => setAiSettings({ ...aiSettings, confidence_threshold: v })} />
-              <p className="text-xs text-muted-foreground">
+              <p className="text-xs text-muted-foreground font-medium">
                 Only apply filter when AI confidence exceeds this threshold
               </p>
             </CardContent>
@@ -233,12 +220,12 @@ export default function StrategyPage() {
       <div className="flex gap-3">
         <Button
           onClick={handleSave}
-          className="gold-gradient text-gold-foreground font-semibold hover:opacity-90"
+          className="rounded-full bg-primary text-primary-foreground font-semibold hover-scale"
         >
           {saved ? <Check className="size-4 mr-1.5" /> : <Save className="size-4 mr-1.5" />}
           {saved ? "Saved!" : "Save Strategy"}
         </Button>
-        <Button onClick={handleBacktest} variant="secondary" disabled={loading}>
+        <Button onClick={handleBacktest} variant="secondary" disabled={loading} className="rounded-full">
           <FlaskConical className="size-4 mr-1.5" />
           {loading ? "Running..." : "Quick Backtest"}
         </Button>
@@ -248,24 +235,15 @@ export default function StrategyPage() {
       {backtestResult && (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <StatCard icon={BarChart3} label="Total Trades" value={backtestResult.total_trades as number} />
-          <StatCard
-            icon={TrendingUp}
-            label="Win Rate"
+          <StatCard icon={TrendingUp} label="Win Rate"
             value={`${((backtestResult.win_rate as number) * 100).toFixed(1)}%`}
-            variant={(backtestResult.win_rate as number) > 0.5 ? "success" : "danger"}
-          />
-          <StatCard
-            icon={Target}
-            label="Profit Factor"
+            variant={(backtestResult.win_rate as number) > 0.5 ? "success" : "danger"} />
+          <StatCard icon={Target} label="Profit Factor"
             value={(backtestResult.profit_factor as number).toFixed(2)}
-            variant={(backtestResult.profit_factor as number) > 1.5 ? "success" : "warning"}
-          />
-          <StatCard
-            icon={AlertTriangle}
-            label="Max Drawdown"
+            variant={(backtestResult.profit_factor as number) > 1.5 ? "success" : "warning"} />
+          <StatCard icon={AlertTriangle} label="Max Drawdown"
             value={`${((backtestResult.max_drawdown as number) * 100).toFixed(1)}%`}
-            variant="danger"
-          />
+            variant="danger" />
         </div>
       )}
     </div>
@@ -280,13 +258,13 @@ function ParamSlider({
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between">
-        <span className="text-sm text-muted-foreground">{label}</span>
-        <span className="text-xs font-mono bg-primary/10 text-primary px-2 py-0.5 rounded-md">
+        <span className="text-sm text-muted-foreground font-medium">{label}</span>
+        <span className="text-xs font-mono bg-accent text-accent-foreground px-2 py-0.5 rounded-lg font-bold">
           {value}
         </span>
       </div>
       <Slider value={[value]} min={min} max={max} step={step} onValueChange={(v) => onChange(v[0])} />
-      <div className="flex justify-between text-[10px] text-muted-foreground/50">
+      <div className="flex justify-between text-[10px] text-muted-foreground/50 font-medium">
         <span>{min}</span>
         <span>{max}</span>
       </div>

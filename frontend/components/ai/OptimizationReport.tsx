@@ -5,12 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
+  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 
@@ -27,25 +22,17 @@ type Props = {
 };
 
 export default function OptimizationReport({
-  assessment,
-  currentParams,
-  suggestedParams,
-  confidence,
-  reasoning,
-  logId,
-  applied,
-  botRunning,
-  onApply,
+  assessment, currentParams, suggestedParams, confidence, reasoning, logId, applied, botRunning, onApply,
 }: Props) {
   const paramKeys = Array.from(
     new Set([...Object.keys(currentParams), ...Object.keys(suggestedParams)])
   );
 
   return (
-    <Card className="bg-card border-border">
+    <Card>
       <CardHeader>
         <CardTitle className="text-lg flex items-center gap-2">
-          <Sparkles className="size-5 text-primary" />
+          <Sparkles className="size-5 text-primary-foreground dark:text-primary" />
           Strategy Optimization
         </CardTitle>
       </CardHeader>
@@ -54,11 +41,11 @@ export default function OptimizationReport({
 
         <Table>
           <TableHeader>
-            <TableRow className="border-border hover:bg-transparent">
-              <TableHead className="text-muted-foreground">Parameter</TableHead>
-              <TableHead className="text-right text-muted-foreground">Current</TableHead>
-              <TableHead className="text-center text-muted-foreground w-10"></TableHead>
-              <TableHead className="text-right text-muted-foreground">Suggested</TableHead>
+            <TableRow>
+              <TableHead>Parameter</TableHead>
+              <TableHead className="text-right">Current</TableHead>
+              <TableHead className="text-center w-10"></TableHead>
+              <TableHead className="text-right">Suggested</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -67,18 +54,16 @@ export default function OptimizationReport({
               const suggested = suggestedParams[key];
               const changed = current !== suggested;
               return (
-                <TableRow key={key} className="border-border/50">
-                  <TableCell className="font-medium text-foreground">{key}</TableCell>
-                  <TableCell className="text-right font-mono text-muted-foreground">
-                    {current}
-                  </TableCell>
+                <TableRow key={key}>
+                  <TableCell className="font-semibold text-foreground">{key}</TableCell>
+                  <TableCell className="text-right font-mono text-muted-foreground">{current}</TableCell>
                   <TableCell className="text-center">
-                    {changed && <ArrowRight className="size-3.5 text-primary mx-auto" />}
+                    {changed && <ArrowRight className="size-3.5 text-primary-foreground dark:text-primary mx-auto" />}
                   </TableCell>
                   <TableCell
                     className={cn(
                       "text-right font-mono",
-                      changed ? "text-primary font-semibold" : "text-muted-foreground"
+                      changed ? "text-primary-foreground dark:text-primary font-bold" : "text-muted-foreground"
                     )}
                   >
                     {suggested}
@@ -91,8 +76,8 @@ export default function OptimizationReport({
 
         <div className="space-y-2">
           <div className="flex items-center justify-between">
-            <span className="text-xs text-muted-foreground">Confidence</span>
-            <span className="text-xs font-mono text-foreground">
+            <span className="text-xs text-muted-foreground font-medium">Confidence</span>
+            <span className="text-xs font-mono text-foreground font-bold">
               {(confidence * 100).toFixed(0)}%
             </span>
           </div>
@@ -105,13 +90,13 @@ export default function OptimizationReport({
           <Button
             onClick={() => onApply(logId)}
             disabled={botRunning}
-            className="w-full gold-gradient text-gold-foreground font-semibold hover:opacity-90"
+            className="w-full rounded-full bg-primary text-primary-foreground font-semibold hover-scale"
           >
             {botRunning ? "Stop bot to apply" : "Apply Suggestions"}
           </Button>
         )}
         {applied && (
-          <div className="flex items-center justify-center gap-2 py-2 text-sm text-green-400">
+          <div className="flex items-center justify-center gap-2 py-2 text-sm text-success dark:text-green-400 font-semibold">
             <Check className="size-4" />
             <span>Applied successfully</span>
           </div>

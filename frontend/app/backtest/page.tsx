@@ -27,7 +27,6 @@ export default function BacktestPage() {
   const [loading, setLoading] = useState(false);
   const [hasDbData, setHasDbData] = useState(false);
 
-  // Optimizer state
   const [optResult, setOptResult] = useState<Record<string, unknown> | null>(null);
   const [optimizing, setOptimizing] = useState(false);
   const [fastPeriods, setFastPeriods] = useState("10,15,20,25,30");
@@ -46,12 +45,8 @@ export default function BacktestPage() {
     setLoading(true);
     try {
       const params: Record<string, unknown> = { strategy, timeframe, initial_balance: balance, source };
-      if (source === "db") {
-        params.from_date = fromDate;
-        params.to_date = toDate;
-      } else {
-        params.count = count;
-      }
+      if (source === "db") { params.from_date = fromDate; params.to_date = toDate; }
+      else { params.count = count; }
       const res = await runBacktest(params as Parameters<typeof runBacktest>[0]);
       setResult(res.data);
     } catch (e) { console.error(e); }
@@ -65,10 +60,7 @@ export default function BacktestPage() {
       const parseList = (s: string) => s.split(",").map(Number).filter(n => !isNaN(n));
       const grid: Record<string, number[]> = { fast_period: parseList(fastPeriods), slow_period: parseList(slowPeriods) };
       const params: Record<string, unknown> = { strategy, param_grid: grid, timeframe, initial_balance: balance, source };
-      if (source === "db") {
-        params.from_date = fromDate;
-        params.to_date = toDate;
-      }
+      if (source === "db") { params.from_date = fromDate; params.to_date = toDate; }
       const res = await runOptimize(params as Parameters<typeof runOptimize>[0]);
       setOptResult(res.data);
     } catch (e) { console.error(e); }
@@ -92,14 +84,14 @@ export default function BacktestPage() {
         </TabsList>
 
         {/* Shared Config */}
-        <Card className="bg-card border-border mt-4">
+        <Card className="mt-4">
           <CardHeader>
-            <CardTitle className="text-sm">Configuration</CardTitle>
+            <CardTitle className="text-sm font-bold">Configuration</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-x-6 gap-y-4">
               <div className="space-y-2">
-                <label className="text-xs text-muted-foreground">Strategy</label>
+                <label className="text-xs text-muted-foreground font-medium">Strategy</label>
                 <Select value={strategy} onValueChange={(v) => v && setStrategy(v)}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
@@ -111,7 +103,7 @@ export default function BacktestPage() {
                 </Select>
               </div>
               <div className="space-y-2">
-                <label className="text-xs text-muted-foreground">Timeframe</label>
+                <label className="text-xs text-muted-foreground font-medium">Timeframe</label>
                 <Select value={timeframe} onValueChange={(v) => v && setTimeframe(v)}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
@@ -123,7 +115,7 @@ export default function BacktestPage() {
                 </Select>
               </div>
               <div className="space-y-2">
-                <label className="text-xs text-muted-foreground">Data Source</label>
+                <label className="text-xs text-muted-foreground font-medium">Data Source</label>
                 <Select value={source} onValueChange={(v) => v && setSource(v)}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
@@ -135,24 +127,24 @@ export default function BacktestPage() {
                 </Select>
               </div>
               <div className="space-y-2">
-                <label className="text-xs text-muted-foreground">Initial Balance ($)</label>
+                <label className="text-xs text-muted-foreground font-medium">Initial Balance ($)</label>
                 <Input type="number" value={balance} onChange={(e) => setBalance(parseFloat(e.target.value) || 10000)} />
               </div>
               {source === "db" && (
                 <>
                   <div className="space-y-2">
-                    <label className="text-xs text-muted-foreground">From Date</label>
+                    <label className="text-xs text-muted-foreground font-medium">From Date</label>
                     <Input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} />
                   </div>
                   <div className="space-y-2">
-                    <label className="text-xs text-muted-foreground">To Date</label>
+                    <label className="text-xs text-muted-foreground font-medium">To Date</label>
                     <Input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} />
                   </div>
                 </>
               )}
               {source === "mt5" && (
                 <div className="space-y-2">
-                  <label className="text-xs text-muted-foreground">Bars</label>
+                  <label className="text-xs text-muted-foreground font-medium">Bars</label>
                   <Input type="number" value={count} onChange={(e) => setCount(parseInt(e.target.value) || 1000)} />
                 </div>
               )}
@@ -162,7 +154,7 @@ export default function BacktestPage() {
 
         {/* Backtest Tab */}
         <TabsContent value="backtest" className="space-y-4 mt-0">
-          <Button onClick={handleRun} disabled={loading} className="gold-gradient text-gold-foreground font-semibold hover:opacity-90">
+          <Button onClick={handleRun} disabled={loading} className="rounded-full bg-primary text-primary-foreground font-semibold hover-scale">
             <Play className="size-4 mr-1.5" />
             {loading ? "Running..." : "Run Backtest"}
           </Button>
@@ -177,47 +169,54 @@ export default function BacktestPage() {
                 <StatCard icon={AlertTriangle} label="Max Drawdown" value={`${((result.max_drawdown as number) * 100).toFixed(1)}%`} variant="danger" />
               </div>
 
-              <Card className="bg-card border-border">
-                <CardHeader><CardTitle className="text-sm">Equity Curve</CardTitle></CardHeader>
+              <Card>
+                <CardHeader><CardTitle className="text-sm font-bold">Equity Curve</CardTitle></CardHeader>
                 <CardContent>
                   <ResponsiveContainer width="100%" height={300}>
                     <AreaChart data={equityCurve}>
                       <defs>
-                        <linearGradient id="goldGradient" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="0%" stopColor="oklch(0.80 0.15 85)" stopOpacity={0.3} />
-                          <stop offset="100%" stopColor="oklch(0.80 0.15 85)" stopOpacity={0} />
+                        <linearGradient id="greenGradient" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor="#9fe870" stopOpacity={0.3} />
+                          <stop offset="100%" stopColor="#9fe870" stopOpacity={0} />
                         </linearGradient>
                       </defs>
-                      <CartesianGrid strokeDasharray="3 3" stroke="oklch(1 0 0 / 6%)" />
-                      <XAxis dataKey="bar" stroke="oklch(0.60 0.01 250)" fontSize={10} />
-                      <YAxis stroke="oklch(0.60 0.01 250)" fontSize={10} />
-                      <Tooltip contentStyle={{ backgroundColor: "oklch(0.16 0.008 250 / 90%)", border: "1px solid oklch(1 0 0 / 8%)", borderRadius: "8px", backdropFilter: "blur(12px)" }} labelStyle={{ color: "oklch(0.60 0.01 250)" }} itemStyle={{ color: "oklch(0.93 0.01 80)" }} />
-                      <Area type="monotone" dataKey="equity" stroke="oklch(0.80 0.15 85)" strokeWidth={2} fill="url(#goldGradient)" />
+                      <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+                      <XAxis dataKey="bar" className="fill-muted-foreground" fontSize={10} />
+                      <YAxis className="fill-muted-foreground" fontSize={10} />
+                      <Tooltip
+                        contentStyle={{
+                          backgroundColor: "var(--popover)",
+                          border: "1px solid var(--border)",
+                          borderRadius: "12px",
+                          color: "var(--foreground)",
+                        }}
+                      />
+                      <Area type="monotone" dataKey="equity" stroke="#9fe870" strokeWidth={2} fill="url(#greenGradient)" />
                     </AreaChart>
                   </ResponsiveContainer>
                 </CardContent>
               </Card>
             </>
           )}
-          {result?.error ? <p className="text-sm text-destructive">{String(result.error)}</p> : null}
+          {result?.error ? <p className="text-sm text-destructive font-medium">{String(result.error)}</p> : null}
         </TabsContent>
 
         {/* Optimizer Tab */}
         <TabsContent value="optimize" className="space-y-4 mt-0">
-          <Card className="bg-card border-border">
-            <CardHeader><CardTitle className="text-sm">Parameter Grid</CardTitle></CardHeader>
+          <Card>
+            <CardHeader><CardTitle className="text-sm font-bold">Parameter Grid</CardTitle></CardHeader>
             <CardContent className="space-y-4">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <label className="text-xs text-muted-foreground">Fast EMA Periods (comma-separated)</label>
+                  <label className="text-xs text-muted-foreground font-medium">Fast EMA Periods (comma-separated)</label>
                   <Input value={fastPeriods} onChange={(e) => setFastPeriods(e.target.value)} placeholder="10,15,20,25,30" />
                 </div>
                 <div className="space-y-2">
-                  <label className="text-xs text-muted-foreground">Slow EMA Periods (comma-separated)</label>
+                  <label className="text-xs text-muted-foreground font-medium">Slow EMA Periods (comma-separated)</label>
                   <Input value={slowPeriods} onChange={(e) => setSlowPeriods(e.target.value)} placeholder="40,50,60,80,100" />
                 </div>
               </div>
-              <Button onClick={handleOptimize} disabled={optimizing} className="gold-gradient text-gold-foreground font-semibold hover:opacity-90">
+              <Button onClick={handleOptimize} disabled={optimizing} className="rounded-full bg-primary text-primary-foreground font-semibold hover-scale">
                 <Search className="size-4 mr-1.5" />
                 {optimizing ? "Optimizing..." : "Run Grid Search"}
               </Button>
@@ -234,12 +233,12 @@ export default function BacktestPage() {
               </div>
 
               {optResult.best_params && (
-                <Card className="bg-card border-border">
-                  <CardHeader><CardTitle className="text-sm">Best Parameters</CardTitle></CardHeader>
+                <Card>
+                  <CardHeader><CardTitle className="text-sm font-bold">Best Parameters</CardTitle></CardHeader>
                   <CardContent>
                     <div className="flex flex-wrap gap-2">
                       {Object.entries(optResult.best_params as Record<string, number>).map(([k, v]) => (
-                        <Badge key={k} variant="outline" className="text-sm py-1 px-3">
+                        <Badge key={k} variant="outline" className="text-sm py-1 px-3 rounded-full font-semibold">
                           {k}: <strong className="ml-1">{v}</strong>
                         </Badge>
                       ))}
@@ -249,32 +248,32 @@ export default function BacktestPage() {
               )}
 
               {(optResult.top_10 as Record<string, unknown>[])?.length > 0 && (
-                <Card className="bg-card border-border">
-                  <CardHeader><CardTitle className="text-sm">Top 10 Results</CardTitle></CardHeader>
+                <Card>
+                  <CardHeader><CardTitle className="text-sm font-bold">Top 10 Results</CardTitle></CardHeader>
                   <CardContent>
                     <div className="overflow-x-auto">
                       <table className="w-full text-xs">
                         <thead>
                           <tr className="text-muted-foreground border-b border-border">
-                            <th className="text-left py-2 px-2">#</th>
-                            <th className="text-left py-2 px-2">Params</th>
-                            <th className="text-right py-2 px-2">Score</th>
-                            <th className="text-right py-2 px-2">Win Rate</th>
-                            <th className="text-right py-2 px-2">Profit</th>
-                            <th className="text-right py-2 px-2">Sharpe</th>
-                            <th className="text-right py-2 px-2">Trades</th>
+                            <th className="text-left py-2 px-2 font-semibold">#</th>
+                            <th className="text-left py-2 px-2 font-semibold">Params</th>
+                            <th className="text-right py-2 px-2 font-semibold">Score</th>
+                            <th className="text-right py-2 px-2 font-semibold">Win Rate</th>
+                            <th className="text-right py-2 px-2 font-semibold">Profit</th>
+                            <th className="text-right py-2 px-2 font-semibold">Sharpe</th>
+                            <th className="text-right py-2 px-2 font-semibold">Trades</th>
                           </tr>
                         </thead>
                         <tbody>
                           {(optResult.top_10 as Record<string, unknown>[]).map((r, i) => (
-                            <tr key={i} className={`border-b border-border/50 ${i === 0 ? "bg-primary/5" : ""}`}>
-                              <td className="py-1.5 px-2">{i + 1}</td>
+                            <tr key={i} className={`border-b border-border/50 ${i === 0 ? "bg-accent/50" : ""}`}>
+                              <td className="py-1.5 px-2 font-semibold">{i + 1}</td>
                               <td className="py-1.5 px-2 font-mono">
                                 {Object.entries(r.params as Record<string, number>).map(([k, v]) => `${k}=${v}`).join(", ")}
                               </td>
-                              <td className="text-right py-1.5 px-2 font-mono">{(r.score as number).toFixed(4)}</td>
+                              <td className="text-right py-1.5 px-2 font-mono font-bold">{(r.score as number).toFixed(4)}</td>
                               <td className="text-right py-1.5 px-2">{((r.win_rate as number) * 100).toFixed(1)}%</td>
-                              <td className={`text-right py-1.5 px-2 ${(r.total_profit as number) > 0 ? "text-success" : "text-destructive"}`}>
+                              <td className={`text-right py-1.5 px-2 font-semibold ${(r.total_profit as number) > 0 ? "text-success dark:text-green-400" : "text-destructive"}`}>
                                 ${(r.total_profit as number).toFixed(2)}
                               </td>
                               <td className="text-right py-1.5 px-2">{(r.sharpe_ratio as number).toFixed(3)}</td>
@@ -289,7 +288,7 @@ export default function BacktestPage() {
               )}
             </>
           )}
-          {optResult?.error ? <p className="text-sm text-destructive">{String(optResult.error)}</p> : null}
+          {optResult?.error ? <p className="text-sm text-destructive font-medium">{String(optResult.error)}</p> : null}
         </TabsContent>
       </Tabs>
     </div>

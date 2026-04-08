@@ -7,12 +7,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
+  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
 import { Download, BarChart3, TrendingUp, DollarSign, Target } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
@@ -20,14 +15,7 @@ import { StatCard } from "@/components/ui/stat-card";
 import SentimentBadge from "@/components/ai/SentimentBadge";
 import { getTradeHistory, getPerformance } from "@/lib/api";
 import {
-  AreaChart,
-  Area,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ReferenceLine,
-  ResponsiveContainer,
+  AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ReferenceLine, ResponsiveContainer,
 } from "recharts";
 
 type Trade = {
@@ -47,8 +35,7 @@ export default function HistoryPage() {
     setLoading(true);
     try {
       const [tradeRes, perfRes] = await Promise.all([
-        getTradeHistory({ days, limit: 200 }),
-        getPerformance(days),
+        getTradeHistory({ days, limit: 200 }), getPerformance(days),
       ]);
       setTrades(tradeRes.data.trades || []);
       setPerformance(perfRes.data);
@@ -74,14 +61,14 @@ export default function HistoryPage() {
   return (
     <div className="p-6 space-y-6">
       <PageHeader title="Trade History" subtitle="Review past trades and performance">
-        <div className="flex gap-1 glass glass-border rounded-lg p-1">
+        <div className="flex gap-1 border border-border rounded-2xl p-1 bg-card">
           {[7, 30, 90].map((d) => (
             <Button
               key={d}
               variant={days === d ? "default" : "ghost"}
               size="sm"
               onClick={() => setDays(d)}
-              className={days === d ? "gold-gradient text-gold-foreground" : "text-muted-foreground"}
+              className={`rounded-xl ${days === d ? "bg-primary text-primary-foreground" : "text-muted-foreground"}`}
             >
               {d}d
             </Button>
@@ -96,12 +83,12 @@ export default function HistoryPage() {
         </TabsList>
 
         <TabsContent value="trades" className="mt-4">
-          <Card className="bg-card border-border">
+          <Card>
             <CardHeader className="flex flex-row items-center justify-between">
-              <CardTitle className="text-sm">
-                Trades <span className="text-muted-foreground font-normal">({trades.length})</span>
+              <CardTitle className="text-sm font-bold">
+                Trades <span className="text-muted-foreground font-medium">({trades.length})</span>
               </CardTitle>
-              <Button variant="outline" size="sm" onClick={handleExportCSV}>
+              <Button variant="outline" size="sm" onClick={handleExportCSV} className="rounded-full">
                 <Download className="size-3.5 mr-1.5" />
                 Export CSV
               </Button>
@@ -117,25 +104,25 @@ export default function HistoryPage() {
                 <ScrollArea className="h-[500px]">
                   <Table>
                     <TableHeader>
-                      <TableRow className="border-border hover:bg-transparent">
-                        <TableHead className="text-muted-foreground">Time</TableHead>
-                        <TableHead className="text-muted-foreground">Type</TableHead>
-                        <TableHead className="text-right text-muted-foreground">Lot</TableHead>
-                        <TableHead className="text-right text-muted-foreground">Open</TableHead>
-                        <TableHead className="text-right text-muted-foreground">Close</TableHead>
-                        <TableHead className="text-right text-muted-foreground">P&L</TableHead>
-                        <TableHead className="text-muted-foreground">Strategy</TableHead>
-                        <TableHead className="text-center text-muted-foreground">AI</TableHead>
+                      <TableRow>
+                        <TableHead>Time</TableHead>
+                        <TableHead>Type</TableHead>
+                        <TableHead className="text-right">Lot</TableHead>
+                        <TableHead className="text-right">Open</TableHead>
+                        <TableHead className="text-right">Close</TableHead>
+                        <TableHead className="text-right">P&L</TableHead>
+                        <TableHead>Strategy</TableHead>
+                        <TableHead className="text-center">AI</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {trades.map((t) => (
-                        <TableRow key={t.id} className="border-border/50">
-                          <TableCell className="text-muted-foreground text-xs">
+                        <TableRow key={t.id}>
+                          <TableCell className="text-muted-foreground text-xs font-medium">
                             {new Date(t.open_time).toLocaleDateString()}
                           </TableCell>
                           <TableCell
-                            className={`font-medium ${t.type === "BUY" ? "text-green-400" : "text-red-400"}`}
+                            className={`font-semibold ${t.type === "BUY" ? "text-success dark:text-green-400" : "text-destructive"}`}
                           >
                             {t.type}
                           </TableCell>
@@ -145,20 +132,14 @@ export default function HistoryPage() {
                             {t.close_price?.toFixed(2) ?? "—"}
                           </TableCell>
                           <TableCell
-                            className={`text-right font-mono font-medium ${(t.profit ?? 0) >= 0 ? "text-green-400" : "text-red-400"}`}
+                            className={`text-right font-mono font-semibold ${(t.profit ?? 0) >= 0 ? "text-success dark:text-green-400" : "text-destructive"}`}
                           >
-                            {t.profit !== null
-                              ? `${t.profit >= 0 ? "+" : ""}${t.profit.toFixed(2)}`
-                              : "—"}
+                            {t.profit !== null ? `${t.profit >= 0 ? "+" : ""}${t.profit.toFixed(2)}` : "—"}
                           </TableCell>
-                          <TableCell className="text-muted-foreground">{t.strategy_name}</TableCell>
+                          <TableCell className="text-muted-foreground font-medium">{t.strategy_name}</TableCell>
                           <TableCell className="text-center">
                             {t.ai_sentiment_label ? (
-                              <SentimentBadge
-                                label={t.ai_sentiment_label}
-                                score={t.ai_sentiment_score || 0}
-                                size="sm"
-                              />
+                              <SentimentBadge label={t.ai_sentiment_label} score={t.ai_sentiment_score || 0} size="sm" />
                             ) : (
                               <span className="text-muted-foreground">—</span>
                             )}
@@ -169,7 +150,7 @@ export default function HistoryPage() {
                   </Table>
                 </ScrollArea>
               ) : (
-                <p className="text-muted-foreground text-center py-12">No trades found</p>
+                <p className="text-muted-foreground text-center py-12 font-medium">No trades found</p>
               )}
             </CardContent>
           </Card>
@@ -177,36 +158,22 @@ export default function HistoryPage() {
 
         <TabsContent value="performance" className="mt-4">
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            <StatCard
-              icon={BarChart3}
-              label="Total Trades"
-              value={(performance?.total_trades as number) ?? 0}
-            />
-            <StatCard
-              icon={TrendingUp}
-              label="Win Rate"
+            <StatCard icon={BarChart3} label="Total Trades" value={(performance?.total_trades as number) ?? 0} />
+            <StatCard icon={TrendingUp} label="Win Rate"
               value={`${(((performance?.win_rate as number) ?? 0) * 100).toFixed(1)}%`}
-              variant={((performance?.win_rate as number) ?? 0) > 0.5 ? "success" : "danger"}
-            />
-            <StatCard
-              icon={DollarSign}
-              label="Total Profit"
+              variant={((performance?.win_rate as number) ?? 0) > 0.5 ? "success" : "danger"} />
+            <StatCard icon={DollarSign} label="Total Profit"
               value={`$${((performance?.total_profit as number) ?? 0).toFixed(2)}`}
-              variant={((performance?.total_profit as number) ?? 0) > 0 ? "success" : "danger"}
-            />
-            <StatCard
-              icon={Target}
-              label="Avg Profit"
+              variant={((performance?.total_profit as number) ?? 0) > 0 ? "success" : "danger"} />
+            <StatCard icon={Target} label="Avg Profit"
               value={`$${((performance?.avg_profit as number) ?? 0).toFixed(2)}`}
-              variant={((performance?.avg_profit as number) ?? 0) > 0 ? "success" : "danger"}
-            />
+              variant={((performance?.avg_profit as number) ?? 0) > 0 ? "success" : "danger"} />
           </div>
 
-          {/* Cumulative P&L Chart */}
           {trades.filter((t) => t.profit !== null).length > 0 && (
-            <Card className="bg-card border-border mt-4">
+            <Card className="mt-4">
               <CardHeader>
-                <CardTitle className="text-sm">Cumulative P&L</CardTitle>
+                <CardTitle className="text-sm font-bold">Cumulative P&L</CardTitle>
               </CardHeader>
               <CardContent>
                 <ResponsiveContainer width="100%" height={300}>
@@ -216,39 +183,30 @@ export default function HistoryPage() {
                       .sort((a, b) => new Date(a.close_time!).getTime() - new Date(b.close_time!).getTime())
                       .reduce<{ date: string; pnl: number }[]>((acc, t) => {
                         const prev = acc.length > 0 ? acc[acc.length - 1].pnl : 0;
-                        acc.push({
-                          date: new Date(t.close_time!).toLocaleDateString(),
-                          pnl: prev + (t.profit ?? 0),
-                        });
+                        acc.push({ date: new Date(t.close_time!).toLocaleDateString(), pnl: prev + (t.profit ?? 0) });
                         return acc;
                       }, [])}
                   >
                     <defs>
                       <linearGradient id="pnlGradient" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor="#d4af37" stopOpacity={0.3} />
-                        <stop offset="100%" stopColor="#d4af37" stopOpacity={0} />
+                        <stop offset="0%" stopColor="#9fe870" stopOpacity={0.3} />
+                        <stop offset="100%" stopColor="#9fe870" stopOpacity={0} />
                       </linearGradient>
                     </defs>
-                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
-                    <XAxis dataKey="date" stroke="#8a8fa0" fontSize={10} />
-                    <YAxis stroke="#8a8fa0" fontSize={10} />
+                    <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+                    <XAxis dataKey="date" className="fill-muted-foreground" fontSize={10} />
+                    <YAxis className="fill-muted-foreground" fontSize={10} />
                     <Tooltip
                       contentStyle={{
-                        backgroundColor: "rgba(20,20,30,0.9)",
-                        border: "1px solid rgba(255,255,255,0.08)",
-                        borderRadius: "8px",
+                        backgroundColor: "var(--popover)",
+                        border: "1px solid var(--border)",
+                        borderRadius: "12px",
+                        color: "var(--foreground)",
                       }}
-                      labelStyle={{ color: "#8a8fa0" }}
                       formatter={(value) => [`$${Number(value).toFixed(2)}`, "P&L"]}
                     />
-                    <ReferenceLine y={0} stroke="rgba(255,255,255,0.2)" strokeDasharray="3 3" />
-                    <Area
-                      type="monotone"
-                      dataKey="pnl"
-                      stroke="#d4af37"
-                      strokeWidth={2}
-                      fill="url(#pnlGradient)"
-                    />
+                    <ReferenceLine y={0} className="stroke-muted-foreground" strokeDasharray="3 3" strokeOpacity={0.5} />
+                    <Area type="monotone" dataKey="pnl" stroke="#9fe870" strokeWidth={2} fill="url(#pnlGradient)" />
                   </AreaChart>
                 </ResponsiveContainer>
               </CardContent>

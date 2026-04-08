@@ -5,11 +5,11 @@ import { TrendingUp, TrendingDown, XCircle, AlertTriangle, Brain, Activity } fro
 import type { BotEvent } from "@/store/botStore";
 
 const eventConfig: Record<string, { icon: typeof Activity; color: string }> = {
-  trade_opened: { icon: TrendingUp, color: "text-green-400" },
-  trade_closed: { icon: TrendingDown, color: "text-amber-400" },
-  error: { icon: XCircle, color: "text-red-400" },
-  circuit_breaker: { icon: AlertTriangle, color: "text-red-400" },
-  sentiment: { icon: Brain, color: "text-blue-400" },
+  trade_opened: { icon: TrendingUp, color: "text-success dark:text-green-400" },
+  trade_closed: { icon: TrendingDown, color: "text-amber-600 dark:text-amber-400" },
+  error: { icon: XCircle, color: "text-destructive" },
+  circuit_breaker: { icon: AlertTriangle, color: "text-destructive" },
+  sentiment: { icon: Brain, color: "text-blue-600 dark:text-blue-400" },
 };
 
 function formatTime(timestamp: string) {
@@ -29,7 +29,7 @@ function formatTime(timestamp: string) {
 export default function EventFeed({ events }: { events: BotEvent[] }) {
   if (events.length === 0) {
     return (
-      <p className="text-sm text-muted-foreground text-center py-8">
+      <p className="text-sm text-muted-foreground text-center py-8 font-medium">
         No events yet
       </p>
     );
@@ -45,7 +45,7 @@ export default function EventFeed({ events }: { events: BotEvent[] }) {
             <div key={i} className="flex items-start gap-2 py-1.5 border-b border-border/30 last:border-0">
               <Icon className={`size-3.5 mt-0.5 shrink-0 ${config.color}`} />
               <div className="flex-1 min-w-0">
-                <p className="text-xs text-foreground truncate">{event.message}</p>
+                <p className="text-xs text-foreground truncate font-medium">{event.message}</p>
                 <p className="text-[10px] text-muted-foreground">{formatTime(event.timestamp)}</p>
               </div>
             </div>

@@ -11,8 +11,8 @@ type Props = {
 };
 
 const colorMap: Record<string, string> = {
-  bullish: "bg-green-500/10 text-green-400 border-green-500/20",
-  bearish: "bg-red-500/10 text-red-400 border-red-500/20",
+  bullish: "bg-success/10 text-success dark:bg-green-500/10 dark:text-green-400 border-success/20 dark:border-green-500/20",
+  bearish: "bg-destructive/10 text-destructive border-destructive/20",
   neutral: "bg-muted text-muted-foreground border-border",
 };
 
@@ -34,7 +34,7 @@ export default function SentimentBadge({ label, score, confidence, size = "md" }
   const s = sizeMap[size];
 
   return (
-    <span className={cn("inline-flex items-center rounded-full border font-medium", color, s.badge)}>
+    <span className={cn("inline-flex items-center rounded-full border font-semibold", color, s.badge)}>
       <Icon className={s.icon} />
       <span className="capitalize">{label}</span>
       <span className="opacity-60">
