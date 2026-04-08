@@ -49,6 +49,9 @@ export const runOptimization = () => api.post("/api/ai/optimization/run");
 export const applyOptimization = (logId: number) =>
   api.post(`/api/ai/optimization/${logId}/apply`);
 
+// AI Context
+export const getAIContext = () => api.get("/api/ai/context");
+
 // Backtest
 export const runBacktest = (params: {
   strategy: string;
@@ -57,7 +60,52 @@ export const runBacktest = (params: {
   count?: number;
   use_ai_filter?: boolean;
   initial_balance?: number;
+  source?: string;
+  from_date?: string;
+  to_date?: string;
 }) => api.post("/api/backtest/run", params, { timeout: 60000 });
+export const runOptimize = (params: {
+  strategy: string;
+  param_grid: Record<string, number[]>;
+  timeframe?: string;
+  source?: string;
+  from_date?: string;
+  to_date?: string;
+  initial_balance?: number;
+  min_trades?: number;
+}) => api.post("/api/backtest/optimize", params, { timeout: 120000 });
+
+// Historical Data
+export const collectData = (params: {
+  symbol?: string;
+  timeframe?: string;
+  from_date: string;
+  to_date: string;
+}) => api.post("/api/data/collect", params, { timeout: 120000 });
+export const getDataStatus = (symbol?: string) =>
+  api.get("/api/data/status", { params: { symbol } });
+
+// ML Model
+export const trainModel = (params: {
+  timeframe?: string;
+  from_date?: string;
+  to_date?: string;
+  forward_bars?: number;
+  tp_pips?: number;
+  sl_pips?: number;
+  test_size?: number;
+}) => api.post("/api/ml/train", params, { timeout: 300000 });
+export const getModelStatus = () => api.get("/api/ml/status");
+export const mlPredict = () => api.post("/api/ml/predict");
+
+// Macro Data
+export const getMacroLatest = () => api.get("/api/macro/latest");
+export const getMacroCorrelations = (days?: number) =>
+  api.get("/api/macro/correlations", { params: { days } });
+export const getMacroEvents = (days?: number) =>
+  api.get("/api/macro/events", { params: { days } });
+export const collectMacro = (from_date?: string, to_date?: string) =>
+  api.post("/api/macro/collect", null, { params: { from_date, to_date }, timeout: 60000 });
 
 // Market Data
 export const getOHLCV = (timeframe: string = "M15", count: number = 200) =>

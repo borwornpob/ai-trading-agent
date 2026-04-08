@@ -12,6 +12,8 @@ import {
   CircleDot,
   Menu,
   X,
+  Cpu,
+  Globe,
 } from "lucide-react";
 import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
@@ -22,6 +24,8 @@ const navItems = [
   { href: "/backtest", label: "Backtest", icon: BarChart3 },
   { href: "/history", label: "History", icon: History },
   { href: "/insights", label: "AI Insights", icon: Brain },
+  { href: "/ml", label: "ML Model", icon: Cpu },
+  { href: "/macro", label: "Macro Data", icon: Globe },
 ];
 
 function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
