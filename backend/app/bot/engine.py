@@ -178,6 +178,7 @@ class BotEngine:
             logger.info(f"Signal detected: {signal_label}")
             await self._log_event(BotEventType.SIGNAL_DETECTED, f"{signal_label} signal on {self.symbol}")
             await self._push_event("bot_event", {"type": "signal_detected", "signal": signal_label, "symbol": self.symbol})
+            await self._notify(self.notifier._send(f"📊 <b>Signal: {signal_label}</b> on {self.symbol}"))
 
             # 3. Get AI sentiment (optional)
             ai_sentiment = None
@@ -201,6 +202,7 @@ class BotEngine:
                 logger.info(f"Trade blocked: {reason}")
                 await self._log_event(BotEventType.TRADE_BLOCKED, f"{signal_label} blocked: {reason}")
                 await self._push_event("bot_event", {"type": "trade_blocked", "signal": signal_label, "reason": reason})
+                await self._notify(self.notifier._send(f"🚫 <b>{signal_label} Blocked</b>\n{reason}"))
                 return
 
             # 5. Calculate lot size and SL/TP
@@ -246,6 +248,7 @@ class BotEngine:
                 logger.error(f"Order failed: {order_type} {lot} {self.symbol} — {error_msg}")
                 await self._log_event(BotEventType.ORDER_FAILED, f"{order_type} {lot} {self.symbol}: {error_msg}")
                 await self._push_event("bot_event", {"type": "order_failed", "order": order_type, "symbol": self.symbol, "lot": lot, "error": error_msg})
+                await self._notify(self.notifier._send(f"❌ <b>Order Failed</b>\n{order_type} {lot} {self.symbol}\n{error_msg}"))
                 return
 
             if result.get("success"):
