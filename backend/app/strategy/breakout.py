@@ -42,19 +42,19 @@ class BreakoutStrategy(BaseStrategy):
         df = df.copy()
 
         # Channel: N-period high/low (excluding current bar)
-        df["high_channel"] = df["high"].shift(1).rolling(self.lookback).max()
-        df["low_channel"] = df["low"].shift(1).rolling(self.lookback).min()
-        df["atr"] = atr(df["high"], df["low"], df["close"], self.atr_period)
+        df.loc[:, "high_channel"] = df["high"].shift(1).rolling(self.lookback).max()
+        df.loc[:, "low_channel"] = df["low"].shift(1).rolling(self.lookback).min()
+        df.loc[:, "atr"] = atr(df["high"], df["low"], df["close"], self.atr_period)
 
         # Volume filter: tick_volume above rolling average
         has_volume = "tick_volume" in df.columns
         if has_volume and self.volume_filter:
-            df["vol_avg"] = df["tick_volume"].rolling(self.lookback).mean()
+            df.loc[:, "vol_avg"] = df["tick_volume"].rolling(self.lookback).mean()
             vol_ok = df["tick_volume"] > df["vol_avg"]
         else:
             vol_ok = True
 
-        df["signal"] = 0
+        df.loc[:, "signal"] = 0
 
         breakout_up = (df["close"] > df["high_channel"] + df["atr"] * self.atr_threshold) & vol_ok
         breakout_down = (df["close"] < df["low_channel"] - df["atr"] * self.atr_threshold) & vol_ok

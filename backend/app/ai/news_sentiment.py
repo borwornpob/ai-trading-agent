@@ -76,7 +76,7 @@ class NewsSentimentAnalyzer:
                 record = NewsSentiment(
                     headline=item["title"],
                     source=item.get("source", ""),
-                    published_at=datetime.fromisoformat(item["published"]) if item.get("published") else None,
+                    published_at=datetime.fromisoformat(item["published"]).replace(tzinfo=None) if item.get("published") else None,
                     sentiment_label=sentiment.label,
                     sentiment_score=sentiment.score,
                     confidence=sentiment.confidence,
