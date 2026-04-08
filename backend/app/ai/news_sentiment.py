@@ -11,7 +11,7 @@ from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.client import AIClient
-from app.ai.prompts import SENTIMENT_SYSTEM_PROMPT
+from app.ai.prompts import ENHANCED_SENTIMENT_SYSTEM_PROMPT, SENTIMENT_SYSTEM_PROMPT
 from app.db.models import NewsSentiment
 
 
@@ -45,7 +45,7 @@ class NewsSentimentAnalyzer:
         self.db = db_session
         self.redis = redis_client
 
-    async def analyze(self, news_items: list[dict]) -> SentimentResult:
+    async def analyze(self, news_items: list[dict], context: dict | None = None) -> SentimentResult:
         now = datetime.now(timezone.utc).isoformat()
 
         if not news_items:
@@ -55,7 +55,23 @@ class NewsSentimentAnalyzer:
         headlines = "\n".join(f"{i+1}. {item['title']}" for i, item in enumerate(news_items))
         user_prompt = f"Analyze these gold market headlines:\n\n{headlines}"
 
-        result = self.ai.complete_json(SENTIMENT_SYSTEM_PROMPT, user_prompt)
+        # Enrich with context if available
+        system_prompt = SENTIMENT_SYSTEM_PROMPT
+        if context:
+            system_prompt = ENHANCED_SENTIMENT_SYSTEM_PROMPT
+            sections = []
+            if context.get("price_action"):
+                sections.append(f"--- PRICE ACTION ---\n{context['price_action']}")
+            if context.get("trade_patterns"):
+                sections.append(f"--- TRADE HISTORY ---\n{context['trade_patterns']}")
+            if context.get("historical_patterns"):
+                sections.append(f"--- HISTORICAL PATTERNS ---\n{context['historical_patterns']}")
+            if context.get("macro_context"):
+                sections.append(f"--- MACRO DATA ---\n{context['macro_context']}")
+            if sections:
+                user_prompt += "\n\n" + "\n\n".join(sections)
+
+        result = self.ai.complete_json(system_prompt, user_prompt)
 
         if result is None:
             logger.warning("AI sentiment analysis failed, returning neutral")

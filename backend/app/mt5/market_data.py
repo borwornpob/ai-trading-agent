@@ -32,6 +32,17 @@ class MarketDataService:
         df = df.assign(time=pd.to_datetime(df["time"])).set_index("time")
         return df
 
+    async def get_ohlcv_range(self, symbol: str, timeframe: str, from_date: str, to_date: str) -> pd.DataFrame:
+        """Fetch historical OHLCV data by date range from MT5 Bridge."""
+        result = await self.connector.get_ohlcv_range(symbol, timeframe, from_date, to_date)
+        if not result.get("success") or not result.get("data"):
+            logger.warning(f"Failed to get historical OHLCV for {symbol}: {result.get('error')}")
+            return pd.DataFrame()
+
+        df = pd.DataFrame(result["data"])
+        df = df.assign(time=pd.to_datetime(df["time"])).set_index("time")
+        return df
+
     async def stream_ticks(self, symbol: str, callback: Callable, interval: float = 1.0):
         while True:
             tick = await self.get_current_tick(symbol)

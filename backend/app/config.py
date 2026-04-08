@@ -32,6 +32,13 @@ class Settings(BaseSettings):
     telegram_bot_token: str = ""
     telegram_chat_id: str = ""
 
+    # FRED API (macro data)
+    fred_api_key: str = ""
+
+    # ML Model
+    ml_model_path: str = "models/xauusd_signal.pkl"
+    ml_confidence_threshold: float = 0.5
+
     # API
     secret_key: str = "changeme"
     cors_origins: str = "http://localhost:3000"

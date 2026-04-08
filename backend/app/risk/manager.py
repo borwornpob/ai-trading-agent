@@ -54,6 +54,7 @@ class RiskManager:
         balance: float,
         signal: int = 0,
         ai_sentiment: dict | None = None,
+        trade_patterns: dict | None = None,
     ) -> tuple[bool, str]:
         # Check max concurrent trades
         if current_positions >= self.max_concurrent_trades:
@@ -64,12 +65,21 @@ class RiskManager:
         if daily_pnl <= -max_loss:
             return False, f"Daily loss limit reached ({daily_pnl:.2f} <= -{max_loss:.2f})"
 
+        # Adjust confidence threshold based on trade patterns
+        effective_threshold = self.ai_confidence_threshold
+        if trade_patterns:
+            from datetime import datetime, timezone
+            current_hour = datetime.now(timezone.utc).hour
+            worst_hours = trade_patterns.get("worst_hours", [])
+            if current_hour in worst_hours:
+                effective_threshold = min(effective_threshold + 0.15, 0.95)
+
         # AI sentiment filter (optional)
         if self.use_ai_filter and ai_sentiment and signal != 0:
             confidence = ai_sentiment.get("confidence", 0)
             label = ai_sentiment.get("label", "neutral")
 
-            if confidence >= self.ai_confidence_threshold:
+            if confidence >= effective_threshold:
                 if signal == 1 and label == "bearish":
                     return False, f"AI sentiment bearish (confidence: {confidence:.0%}) — BUY signal filtered"
                 if signal == -1 and label == "bullish":

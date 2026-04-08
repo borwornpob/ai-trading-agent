@@ -1,0 +1,152 @@
+"""
+ML Model API routes — training, prediction, and status.
+"""
+
+import json
+from datetime import datetime, timezone
+
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
+from sqlalchemy import desc, select
+
+from app.config import settings
+
+router = APIRouter(prefix="/api/ml", tags=["ml"])
+
+_collector = None
+_db_session = None
+
+
+def set_ml_deps(collector, db_session):
+    global _collector, _db_session
+    _collector = collector
+    _db_session = db_session
+
+
+class TrainRequest(BaseModel):
+    timeframe: str = "M15"
+    from_date: str | None = None
+    to_date: str | None = None
+    forward_bars: int = 10
+    tp_pips: float = 5.0
+    sl_pips: float = 5.0
+    test_size: float = 0.2
+
+
+@router.post("/train")
+async def train_model(req: TrainRequest):
+    if _collector is None or _db_session is None:
+        raise HTTPException(status_code=503, detail="ML dependencies not initialized")
+
+    # Load data from DB
+    df = await _collector.load_from_db(settings.symbol, req.timeframe, req.from_date, req.to_date)
+    if df.empty or len(df) < 500:
+        return {"error": f"Insufficient data: {len(df)} bars (need 500+)"}
+
+    from app.ml.trainer import ModelTrainer
+    trainer = ModelTrainer()
+
+    # Prepare dataset
+    X, y = trainer.prepare_dataset(df, req.forward_bars, req.tp_pips, req.sl_pips)
+    if len(X) < 200:
+        return {"error": f"Insufficient labeled samples: {len(X)} (need 200+)"}
+
+    # Train
+    result = trainer.train(X, y, req.test_size)
+
+    # Save model
+    model_path = settings.ml_model_path
+    trainer.save_model(model_path)
+    result.model_path = model_path
+
+    # Save to DB
+    try:
+        from app.db.models import MLModelLog
+        # Deactivate previous active models
+        from sqlalchemy import update
+        await _db_session.execute(
+            update(MLModelLog).where(MLModelLog.is_active == True).values(is_active=False)
+        )
+
+        split_idx = int(len(X) * (1 - req.test_size))
+        log = MLModelLog(
+            model_name="lightgbm_xauusd",
+            timeframe=req.timeframe,
+            train_start=df.index[0].to_pydatetime(),
+            train_end=df.index[split_idx].to_pydatetime(),
+            test_start=df.index[split_idx].to_pydatetime(),
+            test_end=df.index[-1].to_pydatetime(),
+            metrics=json.dumps(result.report),
+            feature_importance=json.dumps(result.feature_importance),
+            model_path=model_path,
+            is_active=True,
+        )
+        _db_session.add(log)
+        await _db_session.commit()
+    except Exception as e:
+        await _db_session.rollback()
+        return {"warning": f"Model trained but DB log failed: {e}", **result.to_dict()}
+
+    return result.to_dict()
+
+
+@router.get("/status")
+async def model_status():
+    if _db_session is None:
+        raise HTTPException(status_code=503, detail="Not initialized")
+
+    from app.db.models import MLModelLog
+    result = await _db_session.execute(
+        select(MLModelLog).where(MLModelLog.is_active == True).limit(1)
+    )
+    log = result.scalar_one_or_none()
+
+    if not log:
+        return {"status": "no_model", "message": "No trained model found. Use POST /api/ml/train first."}
+
+    return {
+        "status": "ready",
+        "model_name": log.model_name,
+        "timeframe": log.timeframe,
+        "train_period": f"{log.train_start.isoformat()} to {log.train_end.isoformat()}",
+        "test_period": f"{log.test_start.isoformat()} to {log.test_end.isoformat()}",
+        "metrics": json.loads(log.metrics) if log.metrics else {},
+        "feature_importance_top10": dict(list(json.loads(log.feature_importance).items())[:10]) if log.feature_importance else {},
+        "model_path": log.model_path,
+        "created_at": log.created_at.isoformat(),
+    }
+
+
+@router.post("/predict")
+async def predict_now():
+    """Run ML prediction on current market data."""
+    if _collector is None:
+        raise HTTPException(status_code=503, detail="Not initialized")
+
+    from pathlib import Path
+    if not Path(settings.ml_model_path).exists():
+        return {"error": "No trained model found. Train one first."}
+
+    from app.ml.predictor import MLPredictor
+    predictor = MLPredictor(settings.ml_model_path)
+    if not predictor.is_ready:
+        return {"error": "Failed to load model"}
+
+    # Get recent OHLCV from DB
+    df = await _collector.load_from_db(settings.symbol, settings.timeframe)
+    if df.empty or len(df) < 200:
+        return {"error": "Insufficient market data"}
+
+    # Use last 300 bars for feature computation
+    df_recent = df.tail(300)
+    signal, confidence = predictor.predict(df_recent)
+
+    signal_label = {1: "BUY", -1: "SELL", 0: "HOLD"}[signal]
+    return {
+        "signal": signal_label,
+        "signal_value": signal,
+        "confidence": round(confidence, 4),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "symbol": settings.symbol,
+        "timeframe": settings.timeframe,
+    }

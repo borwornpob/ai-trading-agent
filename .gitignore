@@ -29,6 +29,10 @@ out/
 .DS_Store
 Thumbs.db
 
+# ML models
+backend/models/
+*.pkl
+
 # Logs
 *.log
 logs/

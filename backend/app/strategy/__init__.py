@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from app.strategy.base import BaseStrategy
 from app.strategy.breakout import BreakoutStrategy
 from app.strategy.ema_crossover import EMACrossoverStrategy
@@ -8,6 +10,13 @@ STRATEGIES: dict[str, type[BaseStrategy]] = {
     "rsi_filter": RSIFilterStrategy,
     "breakout": BreakoutStrategy,
 }
+
+# Conditionally register ML strategy if model exists
+try:
+    from app.strategy.ml_strategy import MLStrategy
+    STRATEGIES["ml_signal"] = MLStrategy
+except ImportError:
+    pass  # lightgbm not installed
 
 
 def get_strategy(name: str, params: dict | None = None) -> BaseStrategy:

@@ -343,6 +343,37 @@ async def close_all_positions():
     return mt5_response(True, data={"closed": sum(1 for r in results if r["success"]), "results": results})
 
 
+@app.get("/ohlcv/{symbol}/history", dependencies=[Depends(verify_api_key)])
+async def get_ohlcv_history(symbol: str, timeframe: str = "M15", from_date: str = "", to_date: str = ""):
+    """Get historical OHLCV data by date range. Returns up to 50000 bars."""
+    if not ensure_connected():
+        return mt5_response(False, error="MT5 not connected")
+    tf = TIMEFRAMES.get(timeframe.upper())
+    if tf is None:
+        return mt5_response(False, error=f"Invalid timeframe: {timeframe}")
+    try:
+        dt_from = datetime.fromisoformat(from_date)
+        dt_to = datetime.fromisoformat(to_date)
+    except (ValueError, TypeError):
+        return mt5_response(False, error="Invalid date format. Use ISO format: YYYY-MM-DD")
+
+    rates = mt5.copy_rates_range(symbol, tf, dt_from, dt_to)
+    if rates is None or len(rates) == 0:
+        return mt5_response(False, error=f"No OHLCV data for {symbol} in range")
+    data = []
+    for r in rates:
+        data.append({
+            "time": datetime.fromtimestamp(r["time"]).isoformat(),
+            "open": float(r["open"]),
+            "high": float(r["high"]),
+            "low": float(r["low"]),
+            "close": float(r["close"]),
+            "tick_volume": int(r["tick_volume"]),
+        })
+    logger.info(f"Historical OHLCV: {symbol} {timeframe} {from_date} to {to_date} = {len(data)} bars")
+    return mt5_response(True, data=data)
+
+
 @app.get("/history", dependencies=[Depends(verify_api_key)])
 async def get_history(days: int = 1):
     """Get closed deals (trades) from the last N days."""

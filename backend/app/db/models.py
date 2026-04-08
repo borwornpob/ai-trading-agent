@@ -102,6 +102,39 @@ class AIOptimizationLog(Base):
     rationale: Mapped[str] = mapped_column(Text)
     confidence: Mapped[float] = mapped_column(Float)
     applied: Mapped[bool] = mapped_column(Boolean, default=False)
+    backtest_result: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # JSON backtest comparison
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now()
+    )
+
+
+class MacroData(Base):
+    __tablename__ = "macro_data"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    series_id: Mapped[str] = mapped_column(String(50), index=True)
+    series_name: Mapped[str] = mapped_column(String(200))
+    date: Mapped[datetime] = mapped_column(DateTime, index=True)
+    value: Mapped[float] = mapped_column(Float)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now()
+    )
+
+
+class MLModelLog(Base):
+    __tablename__ = "ml_model_logs"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    model_name: Mapped[str] = mapped_column(String(100))
+    timeframe: Mapped[str] = mapped_column(String(10))
+    train_start: Mapped[datetime] = mapped_column(DateTime)
+    train_end: Mapped[datetime] = mapped_column(DateTime)
+    test_start: Mapped[datetime] = mapped_column(DateTime)
+    test_end: Mapped[datetime] = mapped_column(DateTime)
+    metrics: Mapped[str] = mapped_column(Text)  # JSON
+    feature_importance: Mapped[str] = mapped_column(Text)  # JSON
+    model_path: Mapped[str] = mapped_column(String(255))
+    is_active: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now()
     )

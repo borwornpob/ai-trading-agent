@@ -103,5 +103,23 @@ class MT5BridgeConnector:
     async def close_all_positions(self) -> dict:
         return await self._request("delete", "/positions")
 
+    async def get_ohlcv_range(self, symbol: str, timeframe: str, from_date: str, to_date: str) -> dict:
+        """Fetch historical OHLCV data by date range. Uses longer timeout for large datasets."""
+        client = await self._get_client()
+        try:
+            response = await client.get(
+                f"/ohlcv/{symbol}/history",
+                params={"timeframe": timeframe, "from_date": from_date, "to_date": to_date},
+                timeout=30.0,
+            )
+            response.raise_for_status()
+            return response.json()
+        except (httpx.TimeoutException, httpx.ConnectError) as e:
+            logger.error(f"MT5 Bridge historical OHLCV failed: {e}")
+            return {"success": False, "data": None, "error": str(e)}
+        except httpx.HTTPStatusError as e:
+            logger.error(f"MT5 Bridge historical OHLCV HTTP error: {e.response.status_code}")
+            return {"success": False, "data": None, "error": str(e)}
+
     async def get_history(self, days: int = 1) -> dict:
         return await self._request("get", "/history", params={"days": days})

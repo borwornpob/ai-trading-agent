@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
@@ -125,7 +125,14 @@ export default function DashboardPage() {
     fetchData();
   };
 
-  const [chartTimeframe, setChartTimeframe] = useState("M15");
+  const [chartTimeframe, setChartTimeframe] = useState("M5");
+  const chartTfSynced = useRef(false);
+  useEffect(() => {
+    if (status?.timeframe && !chartTfSynced.current) {
+      setChartTimeframe(status.timeframe);
+      chartTfSynced.current = true;
+    }
+  }, [status?.timeframe]);
   const isRunning = status?.state === "RUNNING";
   const unrealizedPnL = positions.reduce((sum, p) => sum + (p.profit || 0), 0);
 

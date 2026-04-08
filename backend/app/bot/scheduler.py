@@ -82,6 +82,16 @@ class BotScheduler:
             max_instances=1,
         )
 
+        # Daily macro data collection: 07:00 UTC
+        self.scheduler.add_job(
+            self._macro_collect_job,
+            "cron",
+            hour=7,
+            minute=0,
+            id="macro_collect",
+            max_instances=1,
+        )
+
         # Daily reset: midnight UTC
         self.scheduler.add_job(
             self._daily_reset_job,
@@ -153,6 +163,16 @@ class BotScheduler:
                 logger.warning("Optimization returned no result")
         except Exception as e:
             logger.error(f"Weekly optimization error: {e}")
+
+    async def _macro_collect_job(self):
+        logger.info("Daily macro collection triggered")
+        if not hasattr(self.bot, '_macro_service') or not self.bot._macro_service:
+            return
+        try:
+            stats = await self.bot._macro_service.collect_all()
+            logger.info(f"Macro data collected: {stats}")
+        except Exception as e:
+            logger.error(f"Macro collection error: {e}")
 
     async def _daily_reset_job(self):
         logger.info("Daily reset triggered")

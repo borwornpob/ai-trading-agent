@@ -14,3 +14,6 @@ feedparser==6.0.11
 apscheduler==3.10.4
 loguru==0.7.3
 pydantic-settings==2.7.1
+lightgbm==4.5.0
+scikit-learn==1.5.2
+joblib==1.4.2

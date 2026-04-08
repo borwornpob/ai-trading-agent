@@ -75,6 +75,14 @@ async def get_latest_optimization(db: AsyncSession = Depends(get_db)):
     }
 
 
+@router.get("/context")
+async def get_ai_context():
+    """Return the current AI context enrichment data."""
+    bot = get_bot()
+    context = await bot.context_builder.build_full_context(bot.symbol, bot.timeframe)
+    return context
+
+
 @router.post("/optimization/run")
 async def run_optimization():
     bot = get_bot()

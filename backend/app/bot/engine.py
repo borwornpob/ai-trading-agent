@@ -11,6 +11,7 @@ import redis.asyncio as redis
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.ai.context_builder import AIContextBuilder
 from app.ai.news_sentiment import NewsSentimentAnalyzer
 from app.config import settings
 from app.db.models import BotEvent, BotEventType, Trade
@@ -56,6 +57,8 @@ class BotEngine:
             ai_confidence_threshold=settings.ai_confidence_threshold,
         )
         self.sentiment_analyzer: NewsSentimentAnalyzer | None = None
+        self.context_builder = AIContextBuilder(db_session)
+        self._ai_context: dict | None = None  # Cached context, refreshed with sentiment
         self._optimizer = None
         self.notifier = None  # TelegramNotifier (optional)
         self._scheduler = None  # BotScheduler ref (set in main.py)
@@ -191,12 +194,18 @@ class BotEngine:
             positions = await self.executor.get_open_positions(self.symbol)
             daily_pnl = await self.circuit_breaker.get_daily_pnl()
 
+            # Get trade patterns from cached context for risk adjustment
+            trade_patterns = None
+            if self._ai_context:
+                trade_patterns = self.context_builder.get_trade_patterns_for_risk(self._ai_context)
+
             can_trade, reason = self.risk_manager.can_open_trade(
                 current_positions=len(positions),
                 daily_pnl=daily_pnl,
                 balance=balance,
                 signal=signal,
                 ai_sentiment=ai_sentiment,
+                trade_patterns=trade_patterns,
             )
             if not can_trade:
                 logger.info(f"Trade blocked: {reason}")
@@ -300,13 +309,22 @@ class BotEngine:
             await self._notify(self.notifier.send_error_alert(f"Bot engine error: {e}"))
 
     async def fetch_and_analyze_sentiment(self):
-        """Fetch news and run sentiment analysis."""
+        """Fetch news and run sentiment analysis with enriched context."""
         if not self.sentiment_analyzer:
             return
         try:
+            # Build AI context (historical patterns, price action, trade history)
+            try:
+                self._ai_context = await self.context_builder.build_full_context(
+                    self.symbol, self.timeframe
+                )
+            except Exception as e:
+                logger.warning(f"Context building failed, using basic sentiment: {e}")
+                self._ai_context = None
+
             news = await self.news_fetcher.fetch_all_sources()
             if news:
-                result = await self.sentiment_analyzer.analyze(news)
+                result = await self.sentiment_analyzer.analyze(news, context=self._ai_context)
                 logger.info(f"Sentiment: {result.label} (score={result.score}, confidence={result.confidence})")
                 await self._push_event("sentiment_update", result.to_dict())
                 # Telegram: sentiment update
