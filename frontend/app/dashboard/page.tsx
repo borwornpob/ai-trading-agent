@@ -93,13 +93,22 @@ export default function DashboardPage() {
     });
     subscribe("sentiment_update", (data) => { if (data) setSentiment(data as NonNullable<typeof sentiment>); });
     subscribe("bot_event", (data) => {
-      const d = data as { type: string; data?: Record<string, unknown>; ticket?: number };
-      const message = d.type === "trade_opened"
-        ? `${d.data?.type} ${d.data?.lot} @ ${d.data?.price}`
-        : d.type === "trade_closed"
-          ? `Position #${d.ticket} closed`
-          : d.type;
+      const d = data as { type: string; data?: Record<string, unknown>; ticket?: number; signal?: string; reason?: string; error?: string; symbol?: string; lot?: number; close_price?: number; profit?: number; order?: string };
+      let message = d.type;
+      if (d.type === "trade_opened") {
+        message = `${d.data?.type} ${d.data?.lot} @ ${d.data?.price}`;
+      } else if (d.type === "trade_closed") {
+        const pnl = d.profit != null ? (d.profit >= 0 ? `+$${d.profit.toFixed(2)}` : `-$${Math.abs(d.profit).toFixed(2)}`) : "";
+        message = `#${d.ticket} closed @ ${d.close_price} ${pnl}`;
+      } else if (d.type === "signal_detected") {
+        message = `${d.signal} signal on ${d.symbol}`;
+      } else if (d.type === "trade_blocked") {
+        message = `${d.signal} blocked: ${d.reason}`;
+      } else if (d.type === "order_failed") {
+        message = `${d.order} ${d.lot} ${d.symbol} failed: ${d.error}`;
+      }
       addEvent({ type: d.type, message, timestamp: new Date().toISOString() });
+      if (d.type === "trade_opened" || d.type === "trade_closed") fetchData();
     });
   }, [subscribe, setTick, setPositions, setSentiment, addEvent]);
 

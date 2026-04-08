@@ -29,11 +29,12 @@ class TelegramNotifier:
             logger.error(f"Telegram send failed: {e}")
 
     async def send_trade_alert(
-        self, trade_type: str, symbol: str, price: float, sl: float, tp: float, lot: float, sentiment_label: str = ""
+        self, trade_type: str, symbol: str, price: float, sl: float, tp: float, lot: float, sentiment_label: str = "", extra: str = ""
     ):
-        icon = "🟢" if trade_type == "BUY" else "🔴"
+        icon = "🟢" if trade_type == "BUY" else "🔴" if trade_type == "SELL" else "⏹"
         sentiment = f" | Sentiment: {sentiment_label}" if sentiment_label else ""
-        text = f"{icon} <b>{trade_type}</b> {symbol} @ {price:.2f}\nLot: {lot} | SL: {sl:.2f} | TP: {tp:.2f}{sentiment}"
+        extra_text = f"\nResult: {extra}" if extra else ""
+        text = f"{icon} <b>{trade_type}</b> {symbol} @ {price:.2f}\nLot: {lot} | SL: {sl:.2f} | TP: {tp:.2f}{sentiment}{extra_text}"
         await self._send(text)
 
     async def send_sentiment_alert(self, label: str, score: float, key_factors: list[str]):

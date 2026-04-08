@@ -102,3 +102,6 @@ class MT5BridgeConnector:
 
     async def close_all_positions(self) -> dict:
         return await self._request("delete", "/positions")
+
+    async def get_history(self, days: int = 1) -> dict:
+        return await self._request("get", "/history", params={"days": days})

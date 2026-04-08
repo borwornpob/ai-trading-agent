@@ -100,6 +100,16 @@ class BotEngine:
             return
         self.state = BotState.RUNNING
         self.started_at = datetime.now(timezone.utc)
+
+        # Seed known tickets from current MT5 positions
+        try:
+            positions = await self.executor.get_open_positions(self.symbol)
+            self._known_tickets = {p["ticket"] for p in positions}
+            if self._known_tickets:
+                logger.info(f"Tracking {len(self._known_tickets)} existing positions")
+        except Exception as e:
+            logger.warning(f"Could not seed known tickets: {e}")
+
         await self._log_event(BotEventType.STARTED, "Bot started")
         logger.info(f"Bot started: strategy={self.strategy.name}, symbol={self.symbol}")
         await self._notify(self.notifier._send(
@@ -317,13 +327,12 @@ class BotEngine:
 
             # Detect closed positions
             closed = self._known_tickets - current_tickets
-            for ticket in closed:
-                logger.info(f"Position closed: ticket={ticket}")
-                self._position_atr.pop(ticket, None)
-                await self._notify(self.notifier.send_trade_alert(
-                    "CLOSE", self.symbol, 0, 0, 0, 0,
-                ))
-                await self._push_event("bot_event", {"type": "trade_closed", "ticket": ticket})
+            if closed and not self.paper_trade:
+                await self._handle_closed_trades(closed)
+            elif closed:
+                for ticket in closed:
+                    logger.info(f"Paper position closed: ticket={ticket}")
+                    self._position_atr.pop(ticket, None)
 
             self._known_tickets = current_tickets
 
@@ -334,6 +343,54 @@ class BotEngine:
             await self._push_event("position_update", {"positions": positions})
         except Exception as e:
             logger.error(f"Position sync error: {e}")
+
+    async def _handle_closed_trades(self, closed_tickets: set[int]):
+        """Fetch close details from MT5 history and update DB."""
+        history_result = await self.connector.get_history(days=1)
+        history_deals = history_result.get("data", []) if history_result.get("success") else []
+        history_map = {d["ticket"]: d for d in history_deals}
+
+        for ticket in closed_tickets:
+            self._position_atr.pop(ticket, None)
+            deal = history_map.get(ticket)
+
+            close_price = deal["price"] if deal else 0
+            profit = deal["profit"] if deal else 0
+            close_time = datetime.fromisoformat(deal["time"]).replace(tzinfo=None) if deal and deal.get("time") else datetime.now(timezone.utc).replace(tzinfo=None)
+
+            profit_str = f"+${profit:.2f}" if profit >= 0 else f"-${abs(profit):.2f}"
+            logger.info(f"Position closed: ticket={ticket} price={close_price} profit={profit_str}")
+
+            # Update trade in DB
+            from sqlalchemy import select
+            stmt = select(Trade).where(Trade.ticket == ticket)
+            result = await self.db.execute(stmt)
+            trade = result.scalar_one_or_none()
+            if trade:
+                trade.close_price = close_price
+                trade.close_time = close_time
+                trade.profit = profit
+                await self.db.commit()
+
+            # Log event
+            await self._log_event(
+                BotEventType.TRADE_CLOSED,
+                f"#{ticket} closed @ {close_price} — {profit_str}",
+            )
+
+            # Push to frontend
+            await self._push_event("bot_event", {
+                "type": "trade_closed",
+                "ticket": ticket,
+                "close_price": close_price,
+                "profit": profit,
+            })
+
+            # Telegram notification
+            await self._notify(self.notifier.send_trade_alert(
+                "CLOSE", self.symbol, close_price, 0, 0, deal.get("lot", 0) if deal else 0,
+                extra=profit_str,
+            ))
 
     async def _sync_paper_positions(self) -> list[dict]:
         """Update paper positions with current prices, close if SL/TP hit."""

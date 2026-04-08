@@ -4,7 +4,7 @@ Provides HTTP API to interact with MetaTrader 5.
 """
 
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 from enum import Enum
 
 import MetaTrader5 as mt5
@@ -341,3 +341,36 @@ async def close_all_positions():
             logger.info(f"Emergency close: {pos.ticket} @ {price}")
 
     return mt5_response(True, data={"closed": sum(1 for r in results if r["success"]), "results": results})
+
+
+@app.get("/history", dependencies=[Depends(verify_api_key)])
+async def get_history(days: int = 1):
+    """Get closed deals (trades) from the last N days."""
+    if not ensure_connected():
+        return mt5_response(False, error="MT5 not connected")
+
+    from_date = datetime.now() - timedelta(days=days)
+    to_date = datetime.now() + timedelta(days=1)
+
+    deals = mt5.history_deals_get(from_date, to_date)
+    if deals is None:
+        return mt5_response(True, data=[])
+
+    result = []
+    for deal in deals:
+        if deal.entry == 1 and deal.type in (0, 1):  # entry=1 means exit, type 0=buy 1=sell
+            result.append({
+                "ticket": deal.position_id,
+                "deal_ticket": deal.ticket,
+                "symbol": deal.symbol,
+                "type": "BUY" if deal.type == 1 else "SELL",  # exit type is opposite
+                "lot": deal.volume,
+                "price": deal.price,
+                "profit": deal.profit,
+                "commission": deal.commission,
+                "swap": deal.swap,
+                "comment": deal.comment,
+                "time": datetime.fromtimestamp(deal.time).isoformat(),
+            })
+
+    return mt5_response(True, data=result)
