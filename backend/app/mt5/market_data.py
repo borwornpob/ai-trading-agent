@@ -29,8 +29,7 @@ class MarketDataService:
             return pd.DataFrame()
 
         df = pd.DataFrame(result["data"])
-        df["time"] = pd.to_datetime(df["time"])
-        df = df.set_index("time")
+        df = df.assign(time=pd.to_datetime(df["time"])).set_index("time")
         return df
 
     async def stream_ticks(self, symbol: str, callback: Callable, interval: float = 1.0):

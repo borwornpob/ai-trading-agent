@@ -38,6 +38,7 @@ export default function PriceChart({ symbol, timeframe, tick, emaFast = 20, emaS
 
   // Store last candle from OHLCV for live updating
   const lastCandleRef = useRef<{ time: number; open: number; high: number; low: number; close: number } | null>(null);
+  const initialLoadRef = useRef(true);
 
   // Create chart
   useEffect(() => {
@@ -139,7 +140,10 @@ export default function PriceChart({ symbol, timeframe, tick, emaFast = 20, emaS
             emaSlowRef.current.setData(slowData.map((d) => ({ time: d.time as CandlestickData["time"], value: d.value })));
           }
 
-          chartRef.current?.timeScale().fitContent();
+          if (initialLoadRef.current) {
+            chartRef.current?.timeScale().fitContent();
+            initialLoadRef.current = false;
+          }
           // Save last candle for live updates
           const last = candles[candles.length - 1];
           lastCandleRef.current = {

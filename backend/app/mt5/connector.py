@@ -17,24 +17,30 @@ class MT5BridgeConnector:
         self.headers = {"X-Bridge-Key": settings.mt5_bridge_api_key}
         self.timeout = 5.0
         self.max_retries = 2
+        self._client: httpx.AsyncClient | None = None
 
-    def _client(self) -> httpx.AsyncClient:
-        return httpx.AsyncClient(
-            base_url=self.base_url,
-            headers=self.headers,
-            timeout=self.timeout,
-        )
+    async def _get_client(self) -> httpx.AsyncClient:
+        if self._client is None or self._client.is_closed:
+            self._client = httpx.AsyncClient(
+                base_url=self.base_url,
+                headers=self.headers,
+                timeout=self.timeout,
+            )
+        return self._client
+
+    async def close(self):
+        if self._client and not self._client.is_closed:
+            await self._client.close()
+            self._client = None
 
     async def _request(self, method: str, path: str, **kwargs) -> dict[str, Any]:
-        last_error = None
+        client = await self._get_client()
         for attempt in range(self.max_retries + 1):
             try:
-                async with self._client() as client:
-                    response = await getattr(client, method)(path, **kwargs)
-                    response.raise_for_status()
-                    return response.json()
+                response = await getattr(client, method)(path, **kwargs)
+                response.raise_for_status()
+                return response.json()
             except (httpx.TimeoutException, httpx.ConnectError) as e:
-                last_error = e
                 if attempt < self.max_retries:
                     logger.warning(f"MT5 Bridge {method.upper()} {path} retry {attempt + 1}: {e}")
                     await asyncio.sleep(1)
@@ -45,11 +51,21 @@ class MT5BridgeConnector:
                 logger.error(f"MT5 Bridge {method.upper()} {path} HTTP error: {e.response.status_code}")
                 return {"success": False, "data": None, "error": str(e)}
 
+    async def _request_fast(self, method: str, path: str, **kwargs) -> dict[str, Any]:
+        """Single attempt with short timeout — for ephemeral data like ticks."""
+        client = await self._get_client()
+        try:
+            response = await getattr(client, method)(path, timeout=2.0, **kwargs)
+            response.raise_for_status()
+            return response.json()
+        except (httpx.TimeoutException, httpx.ConnectError, httpx.HTTPStatusError):
+            return {"success": False, "data": None, "error": "tick timeout"}
+
     async def get_health(self) -> dict:
         return await self._request("get", "/health")
 
     async def get_tick(self, symbol: str) -> dict:
-        return await self._request("get", f"/tick/{symbol}")
+        return await self._request_fast("get", f"/tick/{symbol}")
 
     async def get_ohlcv(self, symbol: str, timeframe: str = "M15", count: int = 100) -> dict:
         return await self._request("get", f"/ohlcv/{symbol}", params={"timeframe": timeframe, "count": count})

@@ -78,6 +78,7 @@ async def lifespan(app: FastAPI):
     logger.info("Shutting down...")
     scheduler.stop()
     await bot_engine.stop()
+    await connector.close()
     await db_session.close()
     await redis_client.close()
 
