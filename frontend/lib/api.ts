@@ -17,6 +17,10 @@ export const updateSettings = (data: {
   ai_confidence_threshold?: number;
   paper_trade?: boolean;
   timeframe?: string;
+  max_risk_per_trade?: number;
+  max_daily_loss?: number;
+  max_concurrent_trades?: number;
+  max_lot?: number;
 }) => api.put("/api/bot/settings", data);
 export const getAccount = () => api.get("/api/bot/account");
 
