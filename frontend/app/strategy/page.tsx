@@ -50,6 +50,13 @@ export default function StrategyPage() {
         use_ai_filter: statusRes.data.use_ai_filter ?? true,
         confidence_threshold: 0.7,
       });
+      // Load current risk settings from bot
+      setRiskParams({
+        risk_per_trade: statusRes.data.max_risk_per_trade != null ? statusRes.data.max_risk_per_trade * 100 : 1.0,
+        max_daily_loss: statusRes.data.max_daily_loss != null ? statusRes.data.max_daily_loss * 100 : 3.0,
+        max_concurrent: statusRes.data.max_concurrent_trades ?? 3,
+        max_lot: statusRes.data.max_lot ?? 1.0,
+      });
     } catch (e) { console.error(e); }
   }, []);
 
@@ -80,6 +87,10 @@ export default function StrategyPage() {
       await updateSettings({
         use_ai_filter: aiSettings.use_ai_filter,
         ai_confidence_threshold: aiSettings.confidence_threshold,
+        max_risk_per_trade: riskParams.risk_per_trade / 100,
+        max_daily_loss: riskParams.max_daily_loss / 100,
+        max_concurrent_trades: riskParams.max_concurrent,
+        max_lot: riskParams.max_lot,
       });
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);

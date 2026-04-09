@@ -32,6 +32,10 @@ class SettingsUpdate(BaseModel):
     ai_confidence_threshold: float | None = None
     paper_trade: bool | None = None
     timeframe: str | None = None
+    max_risk_per_trade: float | None = None
+    max_daily_loss: float | None = None
+    max_concurrent_trades: int | None = None
+    max_lot: float | None = None
 
 
 @router.post("/start")
@@ -102,5 +106,9 @@ async def update_settings(data: SettingsUpdate):
         ai_confidence_threshold=data.ai_confidence_threshold,
         paper_trade=data.paper_trade,
         timeframe=data.timeframe,
+        max_risk_per_trade=data.max_risk_per_trade,
+        max_daily_loss=data.max_daily_loss,
+        max_concurrent_trades=data.max_concurrent_trades,
+        max_lot=data.max_lot,
     )
     return {"status": "updated"}

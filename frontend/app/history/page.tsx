@@ -116,6 +116,23 @@ export default function HistoryPage() {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
+                      {(() => {
+                        const total = trades.reduce((s, t) => s + (t.profit ?? 0), 0);
+                        const wins = trades.filter((t) => (t.profit ?? 0) > 0).length;
+                        return trades.length > 0 ? (
+                          <TableRow className="border-t-2 border-border bg-muted/30 font-semibold">
+                            <TableCell colSpan={4} className="text-xs font-bold text-muted-foreground">
+                              Total ({trades.length} trades · {wins}W / {trades.length - wins}L)
+                            </TableCell>
+                            <TableCell
+                              className={`text-right font-mono font-bold ${total >= 0 ? "text-success dark:text-green-400" : "text-destructive"}`}
+                            >
+                              {total >= 0 ? "+" : ""}{total.toFixed(2)}
+                            </TableCell>
+                            <TableCell colSpan={2} />
+                          </TableRow>
+                        ) : null;
+                      })()}
                       {trades.map((t) => (
                         <TableRow key={t.id}>
                           <TableCell className="text-muted-foreground text-xs font-medium">

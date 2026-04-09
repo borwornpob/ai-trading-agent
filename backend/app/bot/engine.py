@@ -142,15 +142,17 @@ class BotEngine:
 
         await self._log_event(BotEventType.STARTED, "Bot started")
         logger.info(f"Bot started: strategy={self.strategy.name}, symbol={self.symbol}")
-        await self._notify(self.notifier._send(
-            f"▶️ <b>Bot Started</b>\nStrategy: {self.strategy.name}\nSymbol: {self.symbol}\nTimeframe: {self.timeframe}"
-        ))
+        if self.notifier:
+            await self._notify(self.notifier._send(
+                f"▶️ <b>Bot Started</b>\nStrategy: {self.strategy.name}\nSymbol: {self.symbol}\nTimeframe: {self.timeframe}"
+            ))
 
     async def stop(self):
         self.state = BotState.STOPPED
         await self._log_event(BotEventType.STOPPED, "Bot stopped")
         logger.info("Bot stopped")
-        await self._notify(self.notifier._send("⏹ <b>Bot Stopped</b>"))
+        if self.notifier:
+            await self._notify(self.notifier._send("⏹ <b>Bot Stopped</b>"))
 
     async def emergency_stop(self):
         self.state = BotState.STOPPED
@@ -169,6 +171,10 @@ class BotEngine:
             "started_at": self.started_at.isoformat() if self.started_at else None,
             "use_ai_filter": self.risk_manager.use_ai_filter,
             "paper_trade": self.paper_trade,
+            "max_risk_per_trade": self.risk_manager.max_risk_per_trade,
+            "max_daily_loss": self.risk_manager.max_daily_loss,
+            "max_concurrent_trades": self.risk_manager.max_concurrent_trades,
+            "max_lot": self.risk_manager.max_lot,
         }
 
     async def process_candle(self):
@@ -187,7 +193,8 @@ class BotEngine:
             if await self.circuit_breaker.is_triggered(balance):
                 self.state = BotState.PAUSED
                 await self._log_event(BotEventType.CIRCUIT_BREAKER, "Circuit breaker triggered")
-                await self._notify(self.notifier.send_error_alert("⚡ Circuit breaker triggered — bot paused"))
+                if self.notifier:
+                    await self._notify(self.notifier.send_error_alert("⚡ Circuit breaker triggered — bot paused"))
                 return
 
             # 2. Fetch OHLCV and calculate signal
@@ -257,7 +264,8 @@ class BotEngine:
                 logger.info(f"Trade blocked: {reason}")
                 await self._log_event(BotEventType.TRADE_BLOCKED, f"{signal_label} blocked: {reason}")
                 await self._push_event("bot_event", {"type": "trade_blocked", "signal": signal_label, "reason": reason})
-                await self._notify(self.notifier._send(f"🚫 <b>{signal_label} Blocked</b>\n{reason}"))
+                if self.notifier:
+                    await self._notify(self.notifier._send(f"🚫 <b>{signal_label} Blocked</b>\n{reason}"))
                 return
 
             # 5. Calculate lot size and SL/TP
@@ -303,7 +311,8 @@ class BotEngine:
                 logger.error(f"Order failed: {order_type} {lot} {self.symbol} — {error_msg}")
                 await self._log_event(BotEventType.ORDER_FAILED, f"{order_type} {lot} {self.symbol}: {error_msg}")
                 await self._push_event("bot_event", {"type": "order_failed", "order": order_type, "symbol": self.symbol, "lot": lot, "error": error_msg})
-                await self._notify(self.notifier._send(f"❌ <b>Order Failed</b>\n{order_type} {lot} {self.symbol}\n{error_msg}"))
+                if self.notifier:
+                    await self._notify(self.notifier._send(f"❌ <b>Order Failed</b>\n{order_type} {lot} {self.symbol}\n{error_msg}"))
                 return
 
             if result.get("success"):
@@ -341,18 +350,19 @@ class BotEngine:
                 self._position_atr[result["data"]["ticket"]] = atr
 
                 # Telegram: trade opened
-                paper_label = " [PAPER]" if self.paper_trade else ""
-                await self._notify(self.notifier.send_trade_alert(
-                    f"{order_type}{paper_label}", self.symbol, entry_price, sl_tp.sl, sl_tp.tp, lot,
-                    sentiment_data.get("label", ""),
-                ))
+                if self.notifier:
+                    paper_label = " [PAPER]" if self.paper_trade else ""
+                    await self._notify(self.notifier.send_trade_alert(
+                        f"{order_type}{paper_label}", self.symbol, entry_price, sl_tp.sl, sl_tp.tp, lot,
+                        sentiment_data.get("label", ""),
+                    ))
 
         except Exception as e:
             logger.error(f"Bot engine error: {e}")
             self.state = BotState.ERROR
             await self._log_event(BotEventType.ERROR, str(e))
-            # Telegram: error alert
-            await self._notify(self.notifier.send_error_alert(f"Bot engine error: {e}"))
+            if self.notifier:
+                await self._notify(self.notifier.send_error_alert(f"Bot engine error: {e}"))
 
     async def fetch_and_analyze_sentiment(self):
         """Fetch news and run sentiment analysis with enriched context."""
@@ -373,10 +383,10 @@ class BotEngine:
                 result = await self.sentiment_analyzer.analyze(news, context=self._ai_context)
                 logger.info(f"Sentiment: {result.label} (score={result.score}, confidence={result.confidence})")
                 await self._push_event("sentiment_update", result.to_dict())
-                # Telegram: sentiment update
-                await self._notify(self.notifier.send_sentiment_alert(
-                    result.label, result.score, result.key_factors,
-                ))
+                if self.notifier:
+                    await self._notify(self.notifier.send_sentiment_alert(
+                        result.label, result.score, result.key_factors,
+                    ))
         except Exception as e:
             logger.error(f"Sentiment analysis error: {e}")
 
@@ -457,10 +467,11 @@ class BotEngine:
             })
 
             # Telegram notification
-            await self._notify(self.notifier.send_trade_alert(
-                "CLOSE", self.symbol, close_price, 0, 0, deal.get("lot", 0) if deal else 0,
-                extra=profit_str,
-            ))
+            if self.notifier:
+                await self._notify(self.notifier.send_trade_alert(
+                    "CLOSE", self.symbol, close_price, 0, 0, deal.get("lot", 0) if deal else 0,
+                    extra=profit_str,
+                ))
 
     async def _sync_paper_positions(self) -> list[dict]:
         """Update paper positions with current prices, close if SL/TP hit."""
@@ -496,10 +507,11 @@ class BotEngine:
                 self._paper_balance += pos["profit"]
                 logger.info(f"PAPER position {pos['ticket']} closed: profit={pos['profit']}")
                 await self._push_event("bot_event", {"type": "trade_closed", "ticket": pos["ticket"]})
-                tag = " [PAPER]" if self.paper_trade else ""
-                await self._notify(self.notifier.send_trade_alert(
-                    f"CLOSE{tag}", self.symbol, price, 0, 0, pos["lot"],
-                ))
+                if self.notifier:
+                    tag = " [PAPER]" if self.paper_trade else ""
+                    await self._notify(self.notifier.send_trade_alert(
+                        f"CLOSE{tag}", self.symbol, price, 0, 0, pos["lot"],
+                    ))
             else:
                 still_open.append(pos)
 
@@ -541,7 +553,7 @@ class BotEngine:
         self.strategy = get_strategy(name, params)
         logger.info(f"Strategy updated: {name} params={params}")
 
-    async def update_settings(self, use_ai_filter: bool | None = None, ai_confidence_threshold: float | None = None, paper_trade: bool | None = None, timeframe: str | None = None):
+    async def update_settings(self, use_ai_filter: bool | None = None, ai_confidence_threshold: float | None = None, paper_trade: bool | None = None, timeframe: str | None = None, max_risk_per_trade: float | None = None, max_daily_loss: float | None = None, max_concurrent_trades: int | None = None, max_lot: float | None = None):
         if use_ai_filter is not None:
             self.risk_manager.use_ai_filter = use_ai_filter
         if ai_confidence_threshold is not None:
@@ -556,6 +568,18 @@ class BotEngine:
                 logger.info(f"Timeframe changed to: {timeframe}")
                 if self._scheduler:
                     self._scheduler.reschedule_candle(timeframe)
+        if max_risk_per_trade is not None:
+            self.risk_manager.max_risk_per_trade = max_risk_per_trade
+            logger.info(f"Max risk per trade: {max_risk_per_trade:.1%}")
+        if max_daily_loss is not None:
+            self.risk_manager.max_daily_loss = max_daily_loss
+            logger.info(f"Max daily loss: {max_daily_loss:.1%}")
+        if max_concurrent_trades is not None:
+            self.risk_manager.max_concurrent_trades = max(1, max_concurrent_trades)
+            logger.info(f"Max concurrent trades: {max_concurrent_trades}")
+        if max_lot is not None:
+            self.risk_manager.max_lot = max_lot
+            logger.info(f"Max lot: {max_lot}")
 
     async def _log_event(self, event_type: BotEventType, message: str):
         try:

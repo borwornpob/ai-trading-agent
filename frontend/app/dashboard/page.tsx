@@ -94,7 +94,7 @@ export default function DashboardPage() {
       addEvent({ type: d.type, message, timestamp: new Date().toISOString() });
       if (d.type === "trade_opened" || d.type === "trade_closed") fetchData();
     });
-  }, [subscribe, setTick, setPositions, setSentiment, addEvent]);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleStart = async () => { await startBot(); fetchData(); };
   const handleStop = async () => { await stopBot(); fetchData(); };

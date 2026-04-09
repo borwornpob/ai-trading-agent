@@ -37,10 +37,9 @@ class MLStrategy(BaseStrategy):
                 logger.warning(f"Failed to load model from file: {e}")
 
     async def _ensure_model(self):
-        """Load model from DB if not already loaded."""
+        """Load model from DB if not already loaded. Retries on transient errors."""
         if self._model_loaded:
             return
-        self._model_loaded = True  # prevent retry loops
 
         try:
             from app.db.session import async_session
@@ -60,11 +59,13 @@ class MLStrategy(BaseStrategy):
                     data = joblib.load(buf)
                     self._model = data["model"]
                     self._feature_columns = data.get("features", FEATURE_COLUMNS)
+                    self._model_loaded = True  # only set on success
                     logger.info("ML model loaded from DB successfully")
                 else:
                     logger.warning("No trained ML model found in DB — Train a model on the ML page first")
+                    self._model_loaded = True  # no model exists, don't keep retrying
         except Exception as e:
-            logger.warning(f"Failed to load ML model from DB: {e}")
+            logger.warning(f"Failed to load ML model from DB: {e} — will retry next candle")
 
     @property
     def name(self) -> str:

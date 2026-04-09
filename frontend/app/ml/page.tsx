@@ -22,6 +22,7 @@ export default function MLPage() {
   const [predicting, setPredicting] = useState(false);
   const [collecting, setCollecting] = useState(false);
   const [collectResult, setCollectResult] = useState<{ total_bars_fetched: number; new_bars_inserted: number } | null>(null);
+  const [collectError, setCollectError] = useState<string | null>(null);
 
   const [collectTimeframe, setCollectTimeframe] = useState("M15");
   const [trainTimeframe, setTrainTimeframe] = useState("M15");
@@ -51,11 +52,15 @@ export default function MLPage() {
   const handleCollect = async () => {
     setCollecting(true);
     setCollectResult(null);
+    setCollectError(null);
     try {
       const res = await collectData({ timeframe: collectTimeframe, from_date: collectFrom, to_date: collectTo });
       setCollectResult(res.data);
       await fetchData();
-    } catch (e) { console.error(e); }
+    } catch (e) {
+      console.error(e);
+      setCollectError((e as Error).message || "Collection failed. Check VPS connection.");
+    }
     finally { setCollecting(false); }
   };
 
@@ -155,6 +160,11 @@ export default function MLPage() {
           {collectResult && (
             <p className="text-xs font-medium text-success dark:text-green-400">
               Done — {collectResult.total_bars_fetched.toLocaleString()} bars fetched, {collectResult.new_bars_inserted.toLocaleString()} new bars inserted
+            </p>
+          )}
+          {collectError && (
+            <p className="text-xs font-medium text-destructive">
+              Error: {collectError}
             </p>
           )}
         </CardContent>

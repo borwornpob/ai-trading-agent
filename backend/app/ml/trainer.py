@@ -73,8 +73,19 @@ class ModelTrainer:
         X = X[mask]
         y = y[mask].astype(int)
 
+        class_counts = {c: int((y == c).sum()) for c in [-1, 0, 1]}
         logger.info(f"Dataset: {len(X)} samples, features={len(available)}, "
-                     f"label dist: {{1: {(y==1).sum()}, 0: {(y==0).sum()}, -1: {(y==-1).sum()}}}")
+                     f"label dist: {class_counts}")
+
+        missing_classes = [c for c, cnt in class_counts.items() if cnt == 0]
+        if missing_classes:
+            labels = {-1: "SELL", 0: "HOLD", 1: "BUY"}
+            missing_names = [labels[c] for c in missing_classes]
+            raise ValueError(
+                f"Training data is missing classes: {missing_names}. "
+                "Try a wider date range or adjust TP/SL pips so all 3 outcomes appear."
+            )
+
         return X, y
 
     def train(
