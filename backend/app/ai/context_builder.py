@@ -4,6 +4,11 @@ AI Context Builder — enriches AI prompts with historical patterns, price actio
 
 from datetime import datetime, timedelta, timezone
 
+
+def _naive(dt: datetime) -> datetime:
+    """Strip timezone for DB columns stored as TIMESTAMP WITHOUT TIME ZONE."""
+    return dt.replace(tzinfo=None) if dt.tzinfo is not None else dt
+
 import pandas as pd
 from loguru import logger
 from sqlalchemy import select, func, extract
@@ -54,7 +59,7 @@ class AIContextBuilder:
 
     async def build_price_action_stats(self, symbol: str, timeframe: str) -> str:
         """30-day price action summary: trend, ATR percentile, range."""
-        cutoff = datetime.now(timezone.utc) - timedelta(days=30)
+        cutoff = _naive(datetime.now(timezone.utc)) - timedelta(days=30)
         result = await self.db.execute(
             select(OHLCVData)
             .where(OHLCVData.symbol == symbol, OHLCVData.timeframe == timeframe, OHLCVData.time >= cutoff)
@@ -104,7 +109,7 @@ class AIContextBuilder:
 
     async def build_trade_history_patterns(self, days: int = 30) -> str:
         """Win rate by hour/day from Trade table."""
-        cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+        cutoff = _naive(datetime.now(timezone.utc)) - timedelta(days=days)
         result = await self.db.execute(
             select(Trade).where(Trade.open_time >= cutoff, Trade.profit.isnot(None))
         )
@@ -185,7 +190,7 @@ class AIContextBuilder:
     async def build_historical_patterns(self, symbol: str, timeframe: str) -> str:
         """Patterns around known recurring events (NFP, session times)."""
         # Get 90 days of data
-        cutoff = datetime.now(timezone.utc) - timedelta(days=90)
+        cutoff = _naive(datetime.now(timezone.utc)) - timedelta(days=90)
         result = await self.db.execute(
             select(OHLCVData)
             .where(OHLCVData.symbol == symbol, OHLCVData.timeframe == timeframe, OHLCVData.time >= cutoff)

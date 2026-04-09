@@ -7,6 +7,11 @@ import json
 import random
 from datetime import datetime, timezone
 
+
+def _naive_utc() -> datetime:
+    """Return current UTC time without timezone info (for DB columns without tz)."""
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+
 import redis.asyncio as redis
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -275,7 +280,7 @@ class BotEngine:
                     open_price=entry_price,
                     sl=sl_tp.sl,
                     tp=sl_tp.tp,
-                    open_time=datetime.now(timezone.utc),
+                    open_time=_naive_utc(),
                     strategy_name=self.strategy.name,
                     ai_sentiment_score=sentiment_data.get("confidence"),
                     ai_sentiment_label=sentiment_data.get("label"),
