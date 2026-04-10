@@ -14,7 +14,9 @@ const eventConfig: Record<string, { icon: typeof Activity; color: string }> = {
 
 function formatTime(timestamp: string) {
   try {
-    const date = new Date(timestamp);
+    // Backend sends UTC without 'Z' suffix — ensure it's parsed as UTC
+    const ts = timestamp.endsWith("Z") || timestamp.includes("+") ? timestamp : timestamp + "Z";
+    const date = new Date(ts);
     const now = new Date();
     const diff = now.getTime() - date.getTime();
     if (diff < 60000) return "just now";

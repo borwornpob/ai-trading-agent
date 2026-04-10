@@ -43,7 +43,9 @@ export default function NewsCard({ headline, source, time, sentimentLabel, senti
 }
 
 function getTimeAgo(isoTime: string): string {
-  const diff = Date.now() - new Date(isoTime).getTime();
+  // Backend sends UTC without 'Z' suffix — ensure parsed as UTC
+  const ts = isoTime.endsWith("Z") || isoTime.includes("+") ? isoTime : isoTime + "Z";
+  const diff = Date.now() - new Date(ts).getTime();
   const mins = Math.floor(diff / 60000);
   if (mins < 60) return `${mins}m ago`;
   const hours = Math.floor(mins / 60);
