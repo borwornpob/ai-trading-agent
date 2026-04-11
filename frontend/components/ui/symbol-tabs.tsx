@@ -26,9 +26,9 @@ export function SymbolTabs({ symbols, active, onSelect, showAll, allLabel = "All
         <button
           type="button"
           onClick={() => onSelect("all")}
-          className={`flex items-center gap-2 min-h-[44px] px-4 py-2.5 rounded-xl border text-xs font-semibold transition-all whitespace-nowrap ${
+          className={`flex items-center gap-2 min-h-[44px] px-4 py-2.5 rounded-xl border-2 text-xs font-semibold transition-all whitespace-nowrap ${
             active === "all"
-              ? "bg-primary text-primary-foreground border-primary"
+              ? "bg-card text-primary border-primary"
               : "bg-card text-foreground border-border hover:border-primary/50"
           }`}
         >
@@ -42,9 +42,9 @@ export function SymbolTabs({ symbols, active, onSelect, showAll, allLabel = "All
             key={s.symbol}
             type="button"
             onClick={() => onSelect(s.symbol)}
-            className={`flex items-center gap-2.5 min-h-[44px] px-4 py-2.5 rounded-xl border text-xs font-semibold transition-all whitespace-nowrap ${
+            className={`flex items-center gap-2.5 min-h-[44px] px-4 py-2.5 rounded-xl border-2 text-xs font-semibold transition-all whitespace-nowrap ${
               isActive
-                ? "bg-primary text-primary-foreground border-primary"
+                ? "bg-card text-primary border-primary"
                 : "bg-card text-foreground border-border hover:border-primary/50"
             }`}
           >
@@ -52,8 +52,8 @@ export function SymbolTabs({ symbols, active, onSelect, showAll, allLabel = "All
               <span
                 className={`size-2 rounded-full shrink-0 ${
                   s.state === "RUNNING"
-                    ? isActive ? "bg-green-900" : "bg-green-400"
-                    : isActive ? "bg-primary-foreground/30" : "bg-muted-foreground/30"
+                    ? "bg-green-400"
+                    : "bg-muted-foreground/30"
                 }`}
               />
             )}
