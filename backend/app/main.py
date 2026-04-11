@@ -15,6 +15,7 @@ from app.ai.strategy_optimizer import StrategyOptimizer
 from app.notifications.telegram import TelegramNotifier
 from app.api.routes import ai_insights, analytics, backtest, bot, data, history, market_data, metrics as metrics_routes, ml, macro, positions, strategy
 from app.auth import router as auth_router
+from app.auth_webauthn import router as webauthn_router
 from app.data.collector import HistoricalDataCollector
 from app.data.macro import MacroDataService
 from app.data.macro_events import MacroEventCalendar
@@ -147,6 +148,7 @@ app.add_middleware(
 
 # Routes
 app.include_router(auth_router)
+app.include_router(webauthn_router)
 app.include_router(bot.router)
 app.include_router(positions.router)
 app.include_router(history.router)

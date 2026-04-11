@@ -164,10 +164,14 @@ class Settings(BaseSettings):
     log_format: str = "text"  # "json" for production, "text" for development
     log_dir: str = "logs"
 
-    # Authentication (single-user JWT)
-    auth_username: str = "admin"
-    auth_password_hash: str = ""  # bcrypt hash; empty = auth disabled
+    # Authentication
+    auth_username: str = "admin"          # legacy password auth (deprecated)
+    auth_password_hash: str = ""          # bcrypt hash; empty = auth disabled
     jwt_expire_hours: int = 24
+
+    # WebAuthn (Passkey) — new auth system
+    webauthn_rp_id: str = "localhost"     # e.g. "gold-trader-01.up.railway.app" for prod
+    webauthn_origin: str = "http://localhost:3000"  # frontend origin for WebAuthn verification
 
     # API
     secret_key: str = ""
