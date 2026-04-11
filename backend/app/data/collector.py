@@ -133,17 +133,29 @@ class HistoricalDataCollector:
         except Exception:
             pass
 
-        query = text("""
-            SELECT symbol, timeframe,
-                   MIN(time) as first_bar,
-                   MAX(time) as last_bar,
-                   COUNT(*) as bar_count
-            FROM ohlcv_data
-            WHERE (:symbol IS NULL OR symbol = :symbol)
-            GROUP BY symbol, timeframe
-            ORDER BY symbol, timeframe
-        """)
-        result = await self.db.execute(query, {"symbol": symbol})
+        if symbol:
+            query = text("""
+                SELECT symbol, timeframe,
+                       MIN(time) as first_bar,
+                       MAX(time) as last_bar,
+                       COUNT(*) as bar_count
+                FROM ohlcv_data
+                WHERE symbol = :symbol
+                GROUP BY symbol, timeframe
+                ORDER BY symbol, timeframe
+            """)
+            result = await self.db.execute(query, {"symbol": symbol})
+        else:
+            query = text("""
+                SELECT symbol, timeframe,
+                       MIN(time) as first_bar,
+                       MAX(time) as last_bar,
+                       COUNT(*) as bar_count
+                FROM ohlcv_data
+                GROUP BY symbol, timeframe
+                ORDER BY symbol, timeframe
+            """)
+            result = await self.db.execute(query)
         rows = result.fetchall()
         return [{
             "symbol": r[0],
