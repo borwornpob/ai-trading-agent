@@ -37,13 +37,55 @@ class RiskManager:
         self.sl_atr_mult = sl_atr_mult
         self.tp_atr_mult = tp_atr_mult
 
-    def calculate_lot_size(self, balance: float, sl_pips: float, pip_value: float | None = None) -> float:
+    def calculate_lot_size(self, balance: float, sl_pips: float, pip_value: float | None = None, atr_pct: float | None = None) -> float:
         if sl_pips <= 0:
             return 0.01
         pv = pip_value if pip_value is not None else self.pip_value
         lot = (balance * self.max_risk_per_trade) / (sl_pips * pv * 100)
+
+        # Volatility adjustment
+        if atr_pct is not None:
+            if atr_pct > 0.5:    # high volatility
+                lot *= 0.7
+            elif atr_pct < 0.2:  # low volatility
+                lot *= 1.2
+
         lot = round(min(lot, self.max_lot), 2)
         return max(lot, 0.01)
+
+    def calculate_kelly_size(
+        self, balance: float, sl_pips: float,
+        win_rate: float, avg_win: float, avg_loss: float,
+        pip_value: float | None = None,
+    ) -> float:
+        """Kelly Criterion position sizing (fractional Kelly = 0.25x for safety)."""
+        if avg_loss <= 0 or win_rate <= 0:
+            return self.calculate_lot_size(balance, sl_pips, pip_value)
+
+        # Kelly fraction: f* = (p * b - q) / b
+        # where p=win_rate, q=1-p, b=avg_win/avg_loss
+        b = avg_win / avg_loss
+        q = 1 - win_rate
+        kelly = (win_rate * b - q) / b
+
+        # Fractional Kelly (25%) for safety
+        kelly = max(kelly * 0.25, 0.005)  # min 0.5% risk
+        kelly = min(kelly, self.max_risk_per_trade * 2)  # cap at 2x max risk
+
+        pv = pip_value if pip_value is not None else self.pip_value
+        if sl_pips <= 0:
+            return 0.01
+        lot = (balance * kelly) / (sl_pips * pv * 100)
+        lot = round(min(lot, self.max_lot), 2)
+        return max(lot, 0.01)
+
+    def adjust_for_streak(self, base_lot: float, consecutive_losses: int, consecutive_wins: int) -> float:
+        """Reduce lot after consecutive losses, restore after wins."""
+        if consecutive_losses >= 3:
+            return round(base_lot * 0.5, 2)  # halve after 3 losses
+        elif consecutive_losses >= 2:
+            return round(base_lot * 0.75, 2)  # 75% after 2 losses
+        return max(base_lot, 0.01)
 
     def calculate_sl_tp(
         self, entry_price: float, signal: int, atr: float,

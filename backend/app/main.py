@@ -13,7 +13,7 @@ from app.ai.client import AIClient
 from app.ai.news_sentiment import NewsSentimentAnalyzer
 from app.ai.strategy_optimizer import StrategyOptimizer
 from app.notifications.telegram import TelegramNotifier
-from app.api.routes import ai_insights, backtest, bot, data, history, market_data, ml, macro, positions, strategy
+from app.api.routes import ai_insights, analytics, backtest, bot, data, history, market_data, ml, macro, positions, strategy
 from app.data.collector import HistoricalDataCollector
 from app.data.macro import MacroDataService
 from app.data.macro_events import MacroEventCalendar
@@ -138,6 +138,7 @@ app.include_router(market_data.router)
 app.include_router(data.router)
 app.include_router(ml.router)
 app.include_router(macro.router)
+app.include_router(analytics.router)
 app.include_router(ws_router)
 
 

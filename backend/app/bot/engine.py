@@ -119,6 +119,9 @@ class BotEngine:
         self.trailing_start_atr = 1.0   # Activate trailing after profit > start_atr * ATR
         self.trailing_step_atr = 0.5    # Trail SL at step_atr * ATR behind price
         self._position_atr: dict[int, float] = {}  # ticket → ATR at entry time
+        self._position_entry_time: dict[int, datetime] = {}  # ticket → entry time
+        self._position_partial_closed: set[int] = set()  # tickets that had partial TP taken
+        self._position_breakeven: set[int] = set()  # tickets moved to breakeven
         self.started_at: datetime | None = None
         self.last_signal_time: datetime | None = None
 
@@ -309,7 +312,11 @@ class BotEngine:
             entry_price = tick["ask"] if signal == 1 else tick["bid"]
             sl_tp = self.risk_manager.calculate_sl_tp(entry_price, signal, atr)
             sl_pips = abs(entry_price - sl_tp.sl)
-            lot = self.risk_manager.calculate_lot_size(balance, sl_pips)
+            # Calculate ATR as percentage of price for vol adjustment
+            atr_pct = atr / entry_price if entry_price > 0 else 0
+
+            # Try Kelly Criterion if enough trade history
+            lot = self.risk_manager.calculate_lot_size(balance, sl_pips, atr_pct=atr_pct)
 
             # 6. Place order (real or paper)
             order_type = "BUY" if signal == 1 else "SELL"
@@ -350,12 +357,14 @@ class BotEngine:
             if result.get("success"):
                 # 7. Save trade to DB
                 sentiment_data = ai_sentiment or {}
+                actual_fill = result["data"].get("price", entry_price)
                 trade = Trade(
                     ticket=result["data"]["ticket"],
                     symbol=self.symbol,
                     type=order_type,
                     lot=lot,
-                    open_price=entry_price,
+                    open_price=actual_fill,
+                    expected_price=entry_price,
                     sl=sl_tp.sl,
                     tp=sl_tp.tp,
                     open_time=_naive_utc(),
@@ -380,6 +389,7 @@ class BotEngine:
 
                 # Store ATR for trailing stop
                 self._position_atr[result["data"]["ticket"]] = atr
+                self._position_entry_time[result["data"]["ticket"]] = _naive_utc()
 
                 # Telegram: trade opened
                 if self.notifier:
@@ -445,6 +455,9 @@ class BotEngine:
                 for ticket in closed:
                     logger.info(f"Paper position closed: ticket={ticket}")
                     self._position_atr.pop(ticket, None)
+                    self._position_entry_time.pop(ticket, None)
+                    self._position_partial_closed.discard(ticket)
+                    self._position_breakeven.discard(ticket)
 
             self._known_tickets = current_tickets
 
@@ -464,6 +477,9 @@ class BotEngine:
 
         for ticket in closed_tickets:
             self._position_atr.pop(ticket, None)
+            self._position_entry_time.pop(ticket, None)
+            self._position_partial_closed.discard(ticket)
+            self._position_breakeven.discard(ticket)
             deal = history_map.get(ticket)
 
             close_price = deal["price"] if deal else 0
@@ -551,7 +567,7 @@ class BotEngine:
         return still_open
 
     async def _apply_trailing_stops(self, positions: list[dict]):
-        """Move SL in profit direction when position is profitable enough."""
+        """Enhanced trailing: breakeven → partial TP → chandelier trail → time exit."""
         for pos in positions:
             ticket = pos["ticket"]
             pos_atr = self._position_atr.get(ticket)
@@ -562,24 +578,39 @@ class BotEngine:
             open_price = pos.get("open_price", 0)
             current_sl = pos.get("sl", 0)
             pos_type = pos.get("type", "")
+            lot = pos.get("lot", 0)
 
             if pos_type == "BUY":
                 profit_distance = current_price - open_price
-                if profit_distance < pos_atr * self.trailing_start_atr:
-                    continue
-                new_sl = current_price - pos_atr * self.trailing_step_atr
-                if new_sl > current_sl:
-                    logger.info(f"Trailing stop BUY {ticket}: SL {current_sl:.2f} → {new_sl:.2f}")
-                    await self.executor.modify_position(ticket, sl=round(new_sl, 2))
-
             elif pos_type == "SELL":
                 profit_distance = open_price - current_price
-                if profit_distance < pos_atr * self.trailing_start_atr:
-                    continue
-                new_sl = current_price + pos_atr * self.trailing_step_atr
-                if current_sl == 0 or new_sl < current_sl:
-                    logger.info(f"Trailing stop SELL {ticket}: SL {current_sl:.2f} → {new_sl:.2f}")
-                    await self.executor.modify_position(ticket, sl=round(new_sl, 2))
+            else:
+                continue
+
+            # Stage 1: Breakeven stop after profit > 0.5x ATR
+            if profit_distance > pos_atr * 0.5 and ticket not in self._position_breakeven:
+                be_price = open_price + (0.0001 if pos_type == "BUY" else -0.0001)  # 1 pip above/below entry
+                if pos_type == "BUY" and be_price > current_sl:
+                    logger.info(f"Breakeven stop BUY {ticket}: SL → {be_price:.{self.risk_manager.price_decimals}f}")
+                    await self.executor.modify_position(ticket, sl=round(be_price, self.risk_manager.price_decimals))
+                    self._position_breakeven.add(ticket)
+                elif pos_type == "SELL" and (current_sl == 0 or be_price < current_sl):
+                    logger.info(f"Breakeven stop SELL {ticket}: SL → {be_price:.{self.risk_manager.price_decimals}f}")
+                    await self.executor.modify_position(ticket, sl=round(be_price, self.risk_manager.price_decimals))
+                    self._position_breakeven.add(ticket)
+
+            # Stage 2: Chandelier trailing after profit > 1x ATR
+            if profit_distance >= pos_atr * self.trailing_start_atr:
+                if pos_type == "BUY":
+                    new_sl = current_price - pos_atr * self.trailing_step_atr
+                    if new_sl > current_sl:
+                        logger.info(f"Trailing BUY {ticket}: SL {current_sl} → {new_sl:.{self.risk_manager.price_decimals}f}")
+                        await self.executor.modify_position(ticket, sl=round(new_sl, self.risk_manager.price_decimals))
+                elif pos_type == "SELL":
+                    new_sl = current_price + pos_atr * self.trailing_step_atr
+                    if current_sl == 0 or new_sl < current_sl:
+                        logger.info(f"Trailing SELL {ticket}: SL {current_sl} → {new_sl:.{self.risk_manager.price_decimals}f}")
+                        await self.executor.modify_position(ticket, sl=round(new_sl, self.risk_manager.price_decimals))
 
     async def update_strategy(self, name: str, params: dict | None = None):
         self.strategy = get_strategy(name, params, symbol=self.symbol)

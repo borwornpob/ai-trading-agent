@@ -88,6 +88,32 @@ class ModelTrainer:
 
         return X, y
 
+    def select_features(self, X, y, drop_ratio: float = 0.25):
+        """Drop least important features based on permutation importance."""
+        from sklearn.inspection import permutation_importance
+        import lightgbm as lgb
+
+        # Train a quick model to evaluate features
+        temp_model = lgb.LGBMClassifier(
+            n_estimators=50, num_leaves=15, learning_rate=0.1,
+            verbose=-1, class_weight="balanced",
+        )
+        temp_model.fit(X, y)
+
+        # Permutation importance
+        result = permutation_importance(temp_model, X, y, n_repeats=5, random_state=42, n_jobs=-1)
+        importances = result.importances_mean
+
+        # Rank and drop bottom N%
+        n_drop = max(1, int(len(X.columns) * drop_ratio))
+        indices = importances.argsort()
+        drop_cols = [X.columns[i] for i in indices[:n_drop]]
+        keep_cols = [c for c in X.columns if c not in drop_cols]
+
+        logger.info(f"Feature selection: {len(X.columns)} → {len(keep_cols)} features (dropped {drop_cols})")
+
+        return keep_cols
+
     def train(
         self, X: pd.DataFrame, y: pd.Series, test_size: float = 0.2
     ) -> TrainingResult:
@@ -98,6 +124,13 @@ class ModelTrainer:
         split_idx = int(len(X) * (1 - test_size))
         X_train, X_test = X.iloc[:split_idx], X.iloc[split_idx:]
         y_train, y_test = y.iloc[:split_idx], y.iloc[split_idx:]
+
+        # Optional feature selection
+        if len(X_train.columns) > 15:
+            selected = self.select_features(X_train, y_train)
+            X_train = X_train[selected]
+            X_test = X_test[selected]
+            self.feature_columns = selected
 
         y_train_mapped = y_train.map(label_map)
         y_test_mapped = y_test.map(label_map)
@@ -206,6 +239,14 @@ class ModelTrainer:
             (int(n * 0.70), int(n * 0.80)),   # train 0-70%, test 70-80%
             (int(n * 0.80), n),               # train 0-80%, test 80-100%
         ]
+
+        # Optional feature selection (applied before walk-forward folds)
+        if len(X.columns) > 15:
+            # Use first 60% of data for feature selection to avoid look-ahead bias
+            fs_end = int(n * 0.60)
+            selected = self.select_features(X.iloc[:fs_end], y.iloc[:fs_end])
+            X = X[selected]
+            self.feature_columns = selected
 
         fold_results = []
         best_accuracy = -1.0

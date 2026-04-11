@@ -22,11 +22,15 @@ import NewsCard from "@/components/ai/NewsCard";
 import PriceChart from "@/components/chart/PriceChart";
 import EventFeed from "@/components/dashboard/EventFeed";
 import {
+  AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
+} from "recharts";
+import {
   getBotStatus, startBot, stopBot, emergencyStop, getPositions,
   getLatestSentiment, getSentimentHistory, updateSettings, updateStrategy, getAccount,
   getDailyPnl,
   getBotEvents,
   getSymbols,
+  getAnalytics,
 } from "@/lib/api";
 import { useWebSocket } from "@/lib/websocket";
 import { useBotStore } from "@/store/botStore";
@@ -42,6 +46,7 @@ export default function DashboardPage() {
   const [news, setNews] = useState<
     { headline: string; source: string; sentiment_label: string; sentiment_score: number; created_at: string }[]
   >([]);
+  const [analytics, setAnalytics] = useState<Record<string, unknown> | null>(null);
   const { isConnected, subscribe } = useWebSocket();
 
   const fetchData = useCallback(async () => {
@@ -76,6 +81,9 @@ export default function DashboardPage() {
       if (newsRes) setNews((newsRes.data.history || []).slice(0, 5));
       if (accRes) setAccount(accRes.data);
       if (pnlRes) setDailyPnl(pnlRes.data);
+
+      const analyticsRes = await getAnalytics(undefined, 30).catch(() => null);
+      if (analyticsRes) setAnalytics(analyticsRes.data);
 
       // Load persisted events from DB (survives page refresh)
       const eventsRes = await getBotEvents({ days: 1, limit: 50 }).catch(() => null);
@@ -580,6 +588,82 @@ export default function DashboardPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Performance Analytics */}
+      {analytics && (analytics.total_trades as number) > 0 && (
+        <div className="space-y-4">
+          <h3 className="text-sm font-bold text-foreground">Performance Analytics (30d)</h3>
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+            <div className="border border-border rounded-xl p-3 text-center">
+              <p className="text-[10px] text-muted-foreground font-medium">Sharpe</p>
+              <p className={`text-lg font-bold ${(analytics.sharpe_ratio as number) > 1 ? "text-success dark:text-green-400" : "text-foreground"}`}>
+                {(analytics.sharpe_ratio as number).toFixed(2)}
+              </p>
+            </div>
+            <div className="border border-border rounded-xl p-3 text-center">
+              <p className="text-[10px] text-muted-foreground font-medium">Sortino</p>
+              <p className={`text-lg font-bold ${(analytics.sortino_ratio as number) > 1.5 ? "text-success dark:text-green-400" : "text-foreground"}`}>
+                {(analytics.sortino_ratio as number).toFixed(2)}
+              </p>
+            </div>
+            <div className="border border-border rounded-xl p-3 text-center">
+              <p className="text-[10px] text-muted-foreground font-medium">Profit Factor</p>
+              <p className={`text-lg font-bold ${(analytics.profit_factor as number) > 1.5 ? "text-success dark:text-green-400" : "text-foreground"}`}>
+                {(analytics.profit_factor as number).toFixed(2)}
+              </p>
+            </div>
+            <div className="border border-border rounded-xl p-3 text-center">
+              <p className="text-[10px] text-muted-foreground font-medium">Max Drawdown</p>
+              <p className="text-lg font-bold text-destructive">
+                {(analytics.max_drawdown_pct as number).toFixed(1)}%
+              </p>
+            </div>
+            <div className="border border-border rounded-xl p-3 text-center">
+              <p className="text-[10px] text-muted-foreground font-medium">Win Streak</p>
+              <p className="text-lg font-bold text-foreground">{analytics.consecutive_wins as number}</p>
+            </div>
+            <div className="border border-border rounded-xl p-3 text-center">
+              <p className="text-[10px] text-muted-foreground font-medium">Loss Streak</p>
+              <p className="text-lg font-bold text-foreground">{analytics.consecutive_losses as number}</p>
+            </div>
+          </div>
+
+          {(analytics.equity_curve as {time: string; equity: number}[])?.length > 1 && (
+            <Card>
+              <CardHeader className="p-3 sm:p-6">
+                <CardTitle className="text-sm font-bold">Equity Curve</CardTitle>
+              </CardHeader>
+              <CardContent className="h-40 p-3 pt-0 sm:p-6 sm:pt-0">
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={analytics.equity_curve as {time: string; equity: number}[]}>
+                    <defs>
+                      <linearGradient id="eqGradient" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="#9fe870" stopOpacity={0.3} />
+                        <stop offset="100%" stopColor="#9fe870" stopOpacity={0} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+                    <XAxis dataKey="time" hide />
+                    <YAxis className="fill-muted-foreground" fontSize={10} />
+                    <Tooltip
+                      contentStyle={{
+                        backgroundColor: "var(--popover)",
+                        border: "1px solid var(--border)",
+                        borderRadius: "12px",
+                        color: "var(--foreground)",
+                        fontSize: "12px",
+                      }}
+                      formatter={(value) => [`$${Number(value).toFixed(2)}`, "Equity"]}
+                      labelFormatter={() => ""}
+                    />
+                    <Area type="monotone" dataKey="equity" stroke="#9fe870" strokeWidth={2} fill="url(#eqGradient)" />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </CardContent>
+            </Card>
+          )}
+        </div>
+      )}
     </div>
   );
 }

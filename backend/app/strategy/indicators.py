@@ -66,3 +66,23 @@ def adx(high: pd.Series, low: pd.Series, close: pd.Series, length: int = 14) -> 
     adx_line = dx.ewm(span=length, adjust=False).mean()
 
     return {"adx": adx_line, "di_plus": di_plus, "di_minus": di_minus}
+
+
+def bollinger_bands(series: pd.Series, length: int = 20, std_dev: float = 2.0) -> dict:
+    """Bollinger Bands: middle (SMA), upper, lower, bandwidth, %B."""
+    middle = series.rolling(length).mean()
+    std = series.rolling(length).std()
+    upper = middle + std * std_dev
+    lower = middle - std * std_dev
+    bandwidth = (upper - lower) / middle  # normalized bandwidth
+    pct_b = (series - lower) / (upper - lower)  # %B (0=lower, 1=upper)
+    return {"middle": middle, "upper": upper, "lower": lower, "bandwidth": bandwidth, "pct_b": pct_b}
+
+
+def stochastic(high: pd.Series, low: pd.Series, close: pd.Series, k_period: int = 14, d_period: int = 3) -> dict:
+    """Stochastic oscillator: %K and %D."""
+    lowest_low = low.rolling(k_period).min()
+    highest_high = high.rolling(k_period).max()
+    k = 100 * (close - lowest_low) / (highest_high - lowest_low)
+    d = k.rolling(d_period).mean()
+    return {"k": k, "d": d}

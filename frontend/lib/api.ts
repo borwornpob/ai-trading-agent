@@ -127,6 +127,10 @@ export const getMacroEvents = (days?: number) =>
 export const collectMacro = (from_date?: string, to_date?: string) =>
   api.post("/api/macro/collect", null, { params: { from_date, to_date }, timeout: 60000 });
 
+// Analytics
+export const getAnalytics = (symbol?: string, days?: number) =>
+  api.get("/api/analytics/performance", { params: { symbol, days } });
+
 // Market Data
 export const getOHLCV = (symbol: string = "GOLD", timeframe: string = "M15", count: number = 200) =>
   api.get("/api/market-data/ohlcv", { params: { symbol, timeframe, count } });

@@ -61,6 +61,7 @@ class Trade(Base):
     type: Mapped[str] = mapped_column(String(10))  # BUY / SELL
     lot: Mapped[float] = mapped_column(Float)
     open_price: Mapped[float] = mapped_column(Float)
+    expected_price: Mapped[Optional[float]] = mapped_column(Float, nullable=True)  # tick price before order, for slippage calc
     close_price: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     sl: Mapped[float] = mapped_column(Float)
     tp: Mapped[float] = mapped_column(Float)
