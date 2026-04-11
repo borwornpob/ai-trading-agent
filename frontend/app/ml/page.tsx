@@ -13,7 +13,10 @@ import { StatCard } from "@/components/ui/stat-card";
 import { trainModel, getModelStatus, mlPredict, getDataStatus, collectData, getSymbols } from "@/lib/api";
 import { SymbolTabs } from "@/components/ui/symbol-tabs";
 
-type SymbolInfo = { symbol: string; display_name: string; state: string; timeframe?: string; ml_tp_pips?: number; ml_sl_pips?: number };
+type SymbolInfo = {
+  symbol: string; display_name: string; state: string; timeframe?: string;
+  ml_tp_pips?: number; ml_sl_pips?: number; ml_forward_bars?: number; ml_timeframe?: string;
+};
 
 export default function MLPage() {
   const [symbols, setSymbols] = useState<SymbolInfo[]>([]);
@@ -66,14 +69,14 @@ export default function MLPage() {
     setPrediction(null);
     setCollectResult(null);
     setCollectError(null);
-    // Sync timeframe + TP/SL from symbol profile
+    // Sync all ML defaults from symbol profile
     const info = symbols.find((s) => s.symbol === activeSymbol);
-    if (info?.timeframe) {
-      setCollectTimeframe(info.timeframe);
-      setTrainTimeframe(info.timeframe);
-    }
+    if (info?.timeframe) setCollectTimeframe(info.timeframe);
+    if (info?.ml_timeframe) setTrainTimeframe(info.ml_timeframe);
+    else if (info?.timeframe) setTrainTimeframe(info.timeframe);
     if (info?.ml_tp_pips) setTpPips(info.ml_tp_pips);
     if (info?.ml_sl_pips) setSlPips(info.ml_sl_pips);
+    if (info?.ml_forward_bars) setForwardBars(info.ml_forward_bars);
   }, [activeSymbol, symbols]);
 
   const handleCollect = async () => {
@@ -100,9 +103,20 @@ export default function MLPage() {
       await fetchData();
     } catch (e: unknown) {
       console.error(e);
-      const msg = (e && typeof e === "object" && "response" in e)
-        ? String((e as { response: { data?: { detail?: string } } }).response?.data?.detail || "Training failed")
-        : String((e as Error)?.message || "Training failed — check console");
+      let msg = "Training failed — check console";
+      if (e && typeof e === "object" && "response" in e) {
+        const resp = (e as { response: { data?: { detail?: unknown }; status?: number } }).response;
+        const detail = resp?.data?.detail;
+        if (typeof detail === "string") {
+          msg = detail;
+        } else if (Array.isArray(detail)) {
+          msg = detail.map((d: { msg?: string; loc?: string[] }) => `${d.loc?.join(".")}: ${d.msg}`).join("; ");
+        } else {
+          msg = `Server error (${resp?.status || "unknown"})`;
+        }
+      } else if (e instanceof Error) {
+        msg = e.message;
+      }
       setTrainResult({ error: msg });
     }
     finally { setTraining(false); }

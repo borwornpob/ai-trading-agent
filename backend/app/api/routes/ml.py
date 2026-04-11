@@ -54,8 +54,8 @@ class TrainRequest(BaseModel):
     from_date: str | None = None
     to_date: str | None = None
     forward_bars: int = Field(10, ge=1, le=50)
-    tp_pips: float = Field(5.0, ge=0.1, le=100.0)
-    sl_pips: float = Field(5.0, ge=0.1, le=100.0)
+    tp_pips: float = Field(5.0, ge=0.1, le=5000.0)
+    sl_pips: float = Field(5.0, ge=0.1, le=5000.0)
     test_size: float = Field(0.2, ge=0.05, le=0.5)
     use_walk_forward: bool = False
 

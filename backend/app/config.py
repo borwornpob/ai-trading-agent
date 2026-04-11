@@ -14,8 +14,10 @@ SYMBOL_PROFILES: dict[str, dict] = {
         "sl_atr_mult": 1.5,
         "tp_atr_mult": 2.0,
         "contract_size": 100,
-        "ml_tp_pips": 5.0,
-        "ml_sl_pips": 5.0,
+        "ml_tp_pips": 10.0,       # ~$10 move on XAUUSD ~$3,000
+        "ml_sl_pips": 10.0,
+        "ml_forward_bars": 10,
+        "ml_timeframe": "M15",
     },
     "OILCash": {
         "display_name": "WTI Oil",
@@ -27,8 +29,10 @@ SYMBOL_PROFILES: dict[str, dict] = {
         "sl_atr_mult": 1.5,
         "tp_atr_mult": 2.0,
         "contract_size": 100,
-        "ml_tp_pips": 0.5,
+        "ml_tp_pips": 0.5,        # ~$0.50 move on WTI ~$70
         "ml_sl_pips": 0.5,
+        "ml_forward_bars": 10,
+        "ml_timeframe": "M15",
     },
     "BTCUSD": {
         "display_name": "Bitcoin (Binance)",
@@ -40,8 +44,10 @@ SYMBOL_PROFILES: dict[str, dict] = {
         "sl_atr_mult": 2.0,
         "tp_atr_mult": 3.0,
         "contract_size": 1,
-        "ml_tp_pips": 500.0,
+        "ml_tp_pips": 500.0,      # ~$500 move on BTC ~$100,000
         "ml_sl_pips": 500.0,
+        "ml_forward_bars": 5,     # BTC moves fast — shorter horizon
+        "ml_timeframe": "H1",     # H1 better for BTC volatility
     },
     "USDJPY": {
         "display_name": "USD/JPY",
@@ -53,8 +59,10 @@ SYMBOL_PROFILES: dict[str, dict] = {
         "sl_atr_mult": 1.5,
         "tp_atr_mult": 2.0,
         "contract_size": 100000,
-        "ml_tp_pips": 0.5,
-        "ml_sl_pips": 0.5,
+        "ml_tp_pips": 0.3,        # ~30 pips on USDJPY ~145
+        "ml_sl_pips": 0.3,
+        "ml_forward_bars": 10,
+        "ml_timeframe": "M15",
     },
 }
 
