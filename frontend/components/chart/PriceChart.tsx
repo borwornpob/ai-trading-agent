@@ -261,7 +261,7 @@ export default function PriceChart({ symbol, timeframe, tick, emaFast = 20, emaS
           <span className="text-muted-foreground text-sm font-medium">Loading {symbol} chart...</span>
         </div>
       )}
-      <div ref={containerRef} className="w-full h-full" />
+      <div ref={containerRef} className="w-full h-full animate-fade-in" />
     </div>
   );
 }

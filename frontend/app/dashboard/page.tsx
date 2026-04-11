@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { StatCard } from "@/components/ui/stat-card";
+import { AnimatedCounter } from "@/components/ui/animated-counter";
 import SentimentBadge from "@/components/ai/SentimentBadge";
 import NewsCard from "@/components/ai/NewsCard";
 import PriceChart from "@/components/chart/PriceChart";
@@ -246,7 +247,7 @@ export default function DashboardPage() {
 
       {/* Account Balances Bar */}
       {account && (
-        <div className="flex flex-wrap gap-4 items-center px-4 py-3 rounded-2xl border border-border bg-card">
+        <div className="flex flex-wrap gap-4 items-center px-4 py-3 rounded-2xl border border-border bg-card animate-fade-in">
           {account.accounts && account.accounts.length > 1 ? (
             account.accounts.map((acc, i) => (
               <div key={i} className="flex items-center gap-3">
@@ -266,7 +267,7 @@ export default function DashboardPage() {
                 </div>
                 <div>
                   <p className="text-xs text-muted-foreground font-medium uppercase">{acc.connector}</p>
-                  <p className="text-sm font-bold font-mono">${acc.balance.toLocaleString("en", { minimumFractionDigits: 2 })}{acc.currency === "USDT" ? " USDT" : ""}</p>
+                  <p className="text-sm font-bold font-mono"><AnimatedCounter value={acc.balance} prefix="$" />{acc.currency === "USDT" ? " USDT" : ""}</p>
                 </div>
                 {i < (account.accounts?.length ?? 0) - 1 && <div className="h-8 w-px bg-border ml-2" />}
               </div>
@@ -276,7 +277,7 @@ export default function DashboardPage() {
               <Wallet className="size-4 text-muted-foreground" />
               <div>
                 <p className="text-xs text-muted-foreground font-medium">Balance</p>
-                <p className="text-sm font-bold font-mono">${account.balance.toLocaleString("en", { minimumFractionDigits: 2 })}</p>
+                <p className="text-sm font-bold font-mono"><AnimatedCounter value={account.balance} prefix="$" /></p>
               </div>
             </div>
           )}
@@ -284,7 +285,7 @@ export default function DashboardPage() {
       )}
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 animate-fade-in" style={{ animationDelay: "0.05s" }}>
         <StatCard
           icon={TrendingUp}
           label="Unrealized P&L"
@@ -312,7 +313,7 @@ export default function DashboardPage() {
       </div>
 
       {/* Controls + Price Chart */}
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-4 xl:gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-4 gap-4 xl:gap-6 animate-fade-in" style={{ animationDelay: "0.1s" }}>
         <Card className="order-1 lg:order-2">
           <CardHeader className="p-3 sm:p-6">
             <CardTitle className="text-sm font-bold">Controls</CardTitle>
@@ -431,7 +432,7 @@ export default function DashboardPage() {
                 {symbols.map((s) => (
                   <div
                     key={s.symbol}
-                    className="border border-border rounded-xl p-2 cursor-pointer hover:border-primary/50 transition-colors"
+                    className="border border-border rounded-xl p-2 cursor-pointer hover:border-primary/50 glow-hover transition-colors"
                     onClick={() => { setActiveSymbol(s.symbol); setViewMode("single"); }}
                   >
                     <div className="flex items-center justify-between mb-1">
@@ -477,7 +478,7 @@ export default function DashboardPage() {
       </div>
 
       {/* News + Positions + Events */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 xl:gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 xl:gap-6 animate-fade-in" style={{ animationDelay: "0.15s" }}>
         <Card>
           <CardHeader className="p-3 sm:p-6">
             <CardTitle className="text-sm font-bold">News Feed</CardTitle>
