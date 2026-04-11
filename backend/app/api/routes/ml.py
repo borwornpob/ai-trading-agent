@@ -230,12 +230,24 @@ async def predict_now(symbol: str = Query("GOLD")):
     predictor.model = model_data["model"]
     predictor.feature_columns = model_data.get("features", [])
 
-    # Get recent OHLCV from DB — use symbol's ML timeframe, not global default
+    # Get recent OHLCV from DB — try symbol's preferred timeframe, then fallback to others
     from app.config import SYMBOL_PROFILES
-    predict_tf = SYMBOL_PROFILES.get(symbol, {}).get("ml_timeframe", settings.timeframe)
-    df = await _collector.load_from_db(symbol, predict_tf)
+    preferred_tf = SYMBOL_PROFILES.get(symbol, {}).get("ml_timeframe", settings.timeframe)
+    df = await _collector.load_from_db(symbol, preferred_tf)
+    predict_tf = preferred_tf
+
+    # Fallback: try other common timeframes if preferred has no data
     if df.empty or len(df) < 200:
-        return {"error": f"Insufficient market data for {symbol} ({predict_tf}). Collected {len(df) if not df.empty else 0} bars, need 200+."}
+        for fallback_tf in ["M15", "M30", "H1", "H4", "M5", "D1"]:
+            if fallback_tf == preferred_tf:
+                continue
+            df = await _collector.load_from_db(symbol, fallback_tf)
+            if not df.empty and len(df) >= 200:
+                predict_tf = fallback_tf
+                break
+
+    if df.empty or len(df) < 200:
+        return {"error": f"Insufficient market data for {symbol}. Collected {len(df) if not df.empty else 0} bars, need 200+. Collect data first."}
 
     # Use last 300 bars for feature computation
     df_recent = df.tail(300)

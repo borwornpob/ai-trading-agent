@@ -63,21 +63,39 @@ export default function MLPage() {
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
-  // Reset results and sync timeframe when symbol changes
+  // Reset results when symbol changes
   useEffect(() => {
     setTrainResult(null);
     setPrediction(null);
     setCollectResult(null);
     setCollectError(null);
-    // Sync all ML defaults from symbol profile
+  }, [activeSymbol]);
+
+  // Sync ML defaults from symbol profile + actual collected data
+  useEffect(() => {
     const info = symbols.find((s) => s.symbol === activeSymbol);
-    if (info?.timeframe) setCollectTimeframe(info.timeframe);
-    if (info?.ml_timeframe) setTrainTimeframe(info.ml_timeframe);
-    else if (info?.timeframe) setTrainTimeframe(info.timeframe);
     if (info?.ml_tp_pips) setTpPips(info.ml_tp_pips);
     if (info?.ml_sl_pips) setSlPips(info.ml_sl_pips);
     if (info?.ml_forward_bars) setForwardBars(info.ml_forward_bars);
-  }, [activeSymbol, symbols]);
+
+    // Use timeframe from collected data if available (most accurate)
+    const symbolData = dataStatus.filter((d) => (d.symbol as string) === activeSymbol);
+    if (symbolData.length > 0) {
+      // Pick the timeframe with most bars
+      const best = symbolData.reduce((a, b) =>
+        (a.bar_count as number) > (b.bar_count as number) ? a : b
+      );
+      const dataTf = best.timeframe as string;
+      setCollectTimeframe(dataTf);
+      setTrainTimeframe(dataTf);
+    } else if (info?.ml_timeframe) {
+      setCollectTimeframe(info.ml_timeframe);
+      setTrainTimeframe(info.ml_timeframe);
+    } else if (info?.timeframe) {
+      setCollectTimeframe(info.timeframe);
+      setTrainTimeframe(info.timeframe);
+    }
+  }, [activeSymbol, symbols, dataStatus]);
 
   const handleCollect = async () => {
     setCollecting(true);
