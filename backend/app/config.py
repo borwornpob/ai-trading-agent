@@ -88,6 +88,13 @@ class Settings(BaseSettings):
     ai_confidence_threshold: float = 0.7
     paper_trade: bool = False
 
+    # Position management
+    max_position_duration_hours: float = 0  # 0=disabled, e.g. 4.0 = auto-close after 4h
+    partial_tp_atr_mult: float = 1.0  # partial TP trigger at ATR * this multiplier
+
+    # Portfolio risk
+    max_portfolio_leverage: float = 3.0  # block trades when total leverage exceeds this
+
     # Notifications
     telegram_bot_token: str = ""
     telegram_chat_id: str = ""

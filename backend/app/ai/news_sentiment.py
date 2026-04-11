@@ -121,7 +121,27 @@ class NewsSentimentAnalyzer:
             cached = await self.redis.get(f"sentiment:latest:{symbol}")
             if cached:
                 data = json.loads(cached)
-                return SentimentResult(**data)
+                result = SentimentResult(**data)
+
+                # Apply time decay — sentiment loses relevance over time
+                if result.analyzed_at:
+                    try:
+                        analyzed_at = datetime.fromisoformat(result.analyzed_at.replace("Z", "+00:00"))
+                        if analyzed_at.tzinfo is None:
+                            analyzed_at = analyzed_at.replace(tzinfo=timezone.utc)
+                        age_minutes = (datetime.now(timezone.utc) - analyzed_at).total_seconds() / 60
+                        # 10% confidence decay per hour, floor at 50%
+                        decay = max(1.0 - (age_minutes / 60) * 0.1, 0.5)
+                        result.confidence *= decay
+                        result.score *= decay
+
+                        # Too old — treat as neutral
+                        if result.confidence < 0.3:
+                            return SentimentResult(analyzed_at=datetime.now(timezone.utc).isoformat())
+                    except (ValueError, TypeError):
+                        pass
+
+                return result
         except Exception as e:
             logger.error(f"Redis cache read failed: {e}")
 

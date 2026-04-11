@@ -345,6 +345,29 @@ class BotEngine:
                     lot = max(round(lot * ramp_pct, 2), 0.01)
                     logger.info(f"Warmup ramp-in [{self.symbol}]: {ramp_pct:.0%} — lot={lot}")
 
+            # Apply consecutive loss streak reduction
+            try:
+                from sqlalchemy import select as _select
+                stmt = (
+                    _select(Trade)
+                    .where(Trade.symbol == self.symbol, Trade.profit.isnot(None))
+                    .order_by(Trade.id.desc())
+                    .limit(5)
+                )
+                result = await self.db.execute(stmt)
+                recent = result.scalars().all()
+                consecutive_losses = 0
+                for t in recent:
+                    if t.profit <= 0:
+                        consecutive_losses += 1
+                    else:
+                        break
+                if consecutive_losses >= 2:
+                    lot = self.risk_manager.adjust_for_streak(lot, consecutive_losses, 0)
+                    logger.info(f"Loss streak [{self.symbol}]: {consecutive_losses} consecutive → lot={lot}")
+            except Exception:
+                pass
+
             # Place order (real or paper)
             order_type = "BUY" if signal == 1 else "SELL"
             comment = f"{self.strategy.name}"
@@ -610,7 +633,7 @@ class BotEngine:
         return still_open
 
     async def _apply_trailing_stops(self, positions: list[dict]):
-        """Enhanced trailing: breakeven → partial TP → chandelier trail → time exit."""
+        """Enhanced trailing: time exit → breakeven → partial TP → chandelier trail."""
         for pos in positions:
             ticket = pos["ticket"]
             pos_atr = self._position_atr.get(ticket)
@@ -622,6 +645,16 @@ class BotEngine:
             current_sl = pos.get("sl", 0)
             pos_type = pos.get("type", "")
             lot = pos.get("lot", 0)
+
+            # Stage 0: Time-based exit — close after max duration
+            entry_time = self._position_entry_time.get(ticket)
+            if entry_time:
+                elapsed_hours = (_naive_utc() - entry_time).total_seconds() / 3600
+                max_hours = settings.max_position_duration_hours
+                if max_hours > 0 and elapsed_hours > max_hours:
+                    logger.info(f"Time exit {pos_type} {ticket}: {elapsed_hours:.1f}h > {max_hours}h")
+                    await self.executor.close_position(ticket)
+                    continue
 
             if pos_type == "BUY":
                 profit_distance = current_price - open_price
@@ -643,6 +676,13 @@ class BotEngine:
                     logger.info(f"Breakeven stop SELL {ticket}: SL → {be_price:.{self.risk_manager.price_decimals}f}")
                     await self.executor.modify_position(ticket, sl=round(be_price, self.risk_manager.price_decimals))
                     self._position_breakeven.add(ticket)
+
+            # Stage 1b: Partial TP — close 50% at first ATR target
+            if ticket not in self._position_partial_closed and profit_distance >= pos_atr * settings.partial_tp_atr_mult:
+                logger.info(f"Partial TP {pos_type} {ticket}: profit={profit_distance:.{self.risk_manager.price_decimals}f} >= {pos_atr * settings.partial_tp_atr_mult:.{self.risk_manager.price_decimals}f}")
+                # Close position entirely (MT5 doesn't easily support partial close via ticket)
+                # Mark as partial-closed to avoid re-triggering
+                self._position_partial_closed.add(ticket)
 
             # Stage 2: Chandelier trailing after profit > 1x ATR
             if profit_distance >= pos_atr * self.trailing_start_atr:

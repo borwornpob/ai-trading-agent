@@ -52,10 +52,17 @@ class RSIFilterStrategy(BaseStrategy):
 
         df["signal"] = 0
 
+        # RSI divergence detection (5-bar lookback)
+        # Bearish divergence: price higher but RSI lower → weakening uptrend
+        # Bullish divergence: price lower but RSI higher → weakening downtrend
+        df["bearish_div"] = (df["close"] > df["close"].shift(5)) & (df["rsi"] < df["rsi"].shift(5))
+        df["bullish_div"] = (df["close"] < df["close"].shift(5)) & (df["rsi"] > df["rsi"].shift(5))
+
         cross_up = (df["ema_fast"] > df["ema_slow"]) & (df["ema_fast"].shift(1) <= df["ema_slow"].shift(1))
         cross_down = (df["ema_fast"] < df["ema_slow"]) & (df["ema_fast"].shift(1) >= df["ema_slow"].shift(1))
 
-        df.loc[cross_up & (df["rsi"] < self.rsi_overbought), "signal"] = 1
-        df.loc[cross_down & (df["rsi"] > self.rsi_oversold), "signal"] = -1
+        # Filter: skip BUY if bearish divergence, skip SELL if bullish divergence
+        df.loc[cross_up & (df["rsi"] < self.rsi_overbought) & ~df["bearish_div"], "signal"] = 1
+        df.loc[cross_down & (df["rsi"] > self.rsi_oversold) & ~df["bullish_div"], "signal"] = -1
 
         return df

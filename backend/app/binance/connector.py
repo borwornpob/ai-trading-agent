@@ -210,7 +210,7 @@ class BinanceConnector:
         self, symbol: str, order_type: str, lot: float,
         sl: float = 0, tp: float = 0, comment: str = "", magic: int = 0,
     ) -> dict:
-        """Place a market order on Binance Spot."""
+        """Place a market order on Binance Spot, with optional OCO stop orders."""
         sym = self._to_binance_symbol(symbol)
         side = "BUY" if order_type.upper() == "BUY" else "SELL"
 
@@ -232,6 +232,10 @@ class BinanceConnector:
             total_cost = sum(float(f["qty"]) * float(f["price"]) for f in result["fills"])
             fill_price = total_cost / total_qty if total_qty > 0 else 0
 
+        # Place OCO stop-loss/take-profit orders on exchange (survives bot crash)
+        if sl > 0 and tp > 0:
+            await self._place_oco_stops(sym, lot, side, sl, tp)
+
         return {
             "success": True,
             "data": {
@@ -242,6 +246,27 @@ class BinanceConnector:
                 "symbol": symbol,
             },
         }
+
+    async def _place_oco_stops(self, binance_symbol: str, qty: float, entry_side: str, sl: float, tp: float):
+        """Place OCO order on Binance for SL/TP — survives bot crashes."""
+        opposite_side = "SELL" if entry_side == "BUY" else "BUY"
+        try:
+            oco_params = {
+                "symbol": binance_symbol,
+                "side": opposite_side,
+                "quantity": str(qty),
+                "price": str(round(tp, 8)),
+                "stopPrice": str(round(sl, 8)),
+                "stopLimitPrice": str(round(sl, 8)),
+                "stopLimitTimeInForce": "GTC",
+            }
+            result = await self._signed_post("/api/v3/order/oco", oco_params)
+            if "error" not in result:
+                logger.info(f"Binance OCO placed: SL={sl}, TP={tp}")
+            else:
+                logger.warning(f"Binance OCO failed: {result.get('error')} — SL/TP managed by bot")
+        except Exception as e:
+            logger.warning(f"Binance OCO error: {e} — falling back to bot-managed SL/TP")
 
     async def modify_position(self, ticket: int, sl: float | None = None, tp: float | None = None) -> dict:
         """Binance Spot doesn't support SL/TP modification on market orders.
