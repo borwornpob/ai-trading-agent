@@ -8,7 +8,9 @@ import json
 from datetime import datetime, timezone
 
 import joblib
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
+
+from app.auth import require_auth
 from pydantic import BaseModel, Field
 from sqlalchemy import desc, select
 
@@ -60,7 +62,7 @@ class TrainRequest(BaseModel):
     use_walk_forward: bool = False
 
 
-@router.post("/train")
+@router.post("/train", dependencies=[Depends(require_auth)])
 async def train_model(req: TrainRequest):
     if _collector is None or _db_session is None:
         raise HTTPException(status_code=503, detail="ML dependencies not initialized")
@@ -181,7 +183,7 @@ async def model_status(symbol: str = Query("GOLD")):
     }
 
 
-@router.post("/predict")
+@router.post("/predict", dependencies=[Depends(require_auth)])
 async def predict_now(symbol: str = Query("GOLD")):
     """Run ML prediction on current market data."""
     if _collector is None or _db_session is None:

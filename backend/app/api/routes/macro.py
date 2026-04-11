@@ -2,7 +2,9 @@
 Macro data API routes — FRED economic indicators and correlations.
 """
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
+
+from app.auth import require_auth
 
 from app.config import settings
 
@@ -39,7 +41,7 @@ async def get_upcoming_events(days: int = 7):
     return _event_calendar.get_upcoming_events(days)
 
 
-@router.post("/collect")
+@router.post("/collect", dependencies=[Depends(require_auth)])
 async def collect_macro_data(from_date: str | None = None, to_date: str | None = None):
     if _macro_service is None:
         raise HTTPException(status_code=503, detail="Macro service not initialized")

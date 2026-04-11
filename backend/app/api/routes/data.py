@@ -2,7 +2,9 @@
 Historical data collection API routes.
 """
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
+
+from app.auth import require_auth
 from pydantic import BaseModel
 
 router = APIRouter(prefix="/api/data", tags=["data"])
@@ -28,7 +30,7 @@ class CollectRequest(BaseModel):
     to_date: str
 
 
-@router.post("/collect")
+@router.post("/collect", dependencies=[Depends(require_auth)])
 async def collect_data(req: CollectRequest):
     collector = get_collector()
     result = await collector.collect(req.symbol, req.timeframe, req.from_date, req.to_date)

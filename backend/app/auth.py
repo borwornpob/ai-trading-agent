@@ -119,6 +119,9 @@ async def login(req: LoginRequest):
     if not _auth_enabled():
         raise HTTPException(status_code=400, detail="Authentication is not configured")
 
+    if not settings.secret_key:
+        raise HTTPException(status_code=500, detail="SECRET_KEY not configured — cannot sign tokens")
+
     pwd_context = _get_pwd_context()
 
     if req.username != settings.auth_username:

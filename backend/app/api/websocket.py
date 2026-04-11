@@ -6,7 +6,7 @@ import asyncio
 import json
 
 import redis.asyncio as redis
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
 from loguru import logger
 
 router = APIRouter()
@@ -15,7 +15,14 @@ CHANNELS = ["price_update", "position_update", "bot_event", "sentiment_update"]
 
 
 @router.websocket("/ws")
-async def websocket_endpoint(websocket: WebSocket):
+async def websocket_endpoint(websocket: WebSocket, token: str | None = Query(None)):
+    # Validate auth if enabled
+    from app.auth import _auth_enabled, verify_token
+    if _auth_enabled():
+        if not token or not verify_token(token):
+            await websocket.close(code=4001, reason="Authentication required")
+            return
+
     await websocket.accept()
     logger.info("WebSocket client connected")
 

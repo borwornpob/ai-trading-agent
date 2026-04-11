@@ -5,6 +5,8 @@ AI Insights API routes — sentiment and optimization.
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+
+from app.auth import require_auth
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -83,7 +85,7 @@ async def get_ai_context():
     return context
 
 
-@router.post("/optimization/run")
+@router.post("/optimization/run", dependencies=[Depends(require_auth)])
 async def run_optimization():
     bot = _get_engine()
     if not hasattr(bot, "_optimizer") or bot._optimizer is None:
@@ -94,7 +96,7 @@ async def run_optimization():
     return result.to_dict()
 
 
-@router.post("/optimization/{log_id}/apply")
+@router.post("/optimization/{log_id}/apply", dependencies=[Depends(require_auth)])
 async def apply_optimization(log_id: int, db: AsyncSession = Depends(get_db)):
     bot = _get_engine()
     if bot.state.value == "RUNNING":

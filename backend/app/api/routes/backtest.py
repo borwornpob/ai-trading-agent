@@ -2,7 +2,9 @@
 Backtest API routes.
 """
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
+
+from app.auth import require_auth
 from pydantic import BaseModel, Field
 
 from app.backtest.engine import BacktestEngine
@@ -56,7 +58,7 @@ class OptimizeRequest(_BacktestBase):
     min_trades: int = Field(10, ge=1, le=1000)
 
 
-@router.post("/run")
+@router.post("/run", dependencies=[Depends(require_auth)])
 async def run_backtest(req: BacktestRequest):
     df = await _load_data(req.symbol, req.source, req.timeframe, req.count, req.from_date, req.to_date)
     if df.empty:
@@ -74,7 +76,7 @@ async def run_backtest(req: BacktestRequest):
     return result.to_dict()
 
 
-@router.post("/optimize")
+@router.post("/optimize", dependencies=[Depends(require_auth)])
 async def run_optimization(req: OptimizeRequest):
     df = await _load_data(req.symbol, req.source, req.timeframe, req.count, req.from_date, req.to_date)
     if df.empty:
@@ -111,7 +113,7 @@ class CompareRequest(_BacktestBase):
     strategies: list[dict]  # [{"name": "ema_crossover", "params": {...}}, ...]
 
 
-@router.post("/walk-forward")
+@router.post("/walk-forward", dependencies=[Depends(require_auth)])
 async def run_walk_forward(req: WalkForwardRequest):
     df = await _load_data(req.symbol, req.source, req.timeframe, req.count, req.from_date, req.to_date)
     if df.empty:
@@ -130,7 +132,7 @@ async def run_walk_forward(req: WalkForwardRequest):
     return result.to_dict()
 
 
-@router.post("/monte-carlo")
+@router.post("/monte-carlo", dependencies=[Depends(require_auth)])
 async def run_monte_carlo(req: MonteCarloRequest):
     df = await _load_data(req.symbol, req.source, req.timeframe, req.count, req.from_date, req.to_date)
     if df.empty:
@@ -151,7 +153,7 @@ async def run_monte_carlo(req: MonteCarloRequest):
     return mc_result.to_dict()
 
 
-@router.post("/compare")
+@router.post("/compare", dependencies=[Depends(require_auth)])
 async def run_comparison(req: CompareRequest):
     df = await _load_data(req.symbol, req.source, req.timeframe, req.count, req.from_date, req.to_date)
     if df.empty:

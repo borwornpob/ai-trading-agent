@@ -25,10 +25,18 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         setAuthEnabled(res.data?.auth_enabled ?? false);
         setAuthChecked(true);
       })
-      .catch(() => {
-        // 401 = auth enabled but no valid token → redirect to login
-        setAuthEnabled(true);
-        router.replace("/login");
+      .catch((err: unknown) => {
+        const status = (err && typeof err === "object" && "response" in err)
+          ? (err as { response?: { status?: number } }).response?.status
+          : undefined;
+        if (status === 401) {
+          // Auth enabled but no valid token → redirect to login
+          setAuthEnabled(true);
+          router.replace("/login");
+        } else {
+          // Server error or network issue — allow access (auth might be disabled)
+          setAuthChecked(true);
+        }
       });
   }, [isLoginPage, router]);
 

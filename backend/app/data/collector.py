@@ -122,17 +122,17 @@ class HistoricalDataCollector:
 
     async def get_data_status(self, symbol: str | None = None) -> list[dict]:
         """Return data coverage info per symbol/timeframe."""
-        where_clause = f"WHERE symbol = '{symbol}'" if symbol else ""
-        result = await self.db.execute(text(f"""
+        query = text("""
             SELECT symbol, timeframe,
                    MIN(time) as first_bar,
                    MAX(time) as last_bar,
                    COUNT(*) as bar_count
             FROM ohlcv_data
-            {where_clause}
+            WHERE (:symbol IS NULL OR symbol = :symbol)
             GROUP BY symbol, timeframe
             ORDER BY symbol, timeframe
-        """))
+        """)
+        result = await self.db.execute(query, {"symbol": symbol})
         rows = result.fetchall()
         return [{
             "symbol": r[0],
