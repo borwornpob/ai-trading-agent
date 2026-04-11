@@ -41,7 +41,7 @@ export default function DashboardPage() {
     setActiveSymbol, setSymbols, setStatus, setSymbolStatuses, setPositions, setSentiment, setTick, addEvent,
   } = useBotStore();
   const [loading, setLoading] = useState(true);
-  const [account, setAccount] = useState<{ balance: number; equity: number; margin: number; free_margin: number; profit: number } | null>(null);
+  const [account, setAccount] = useState<{ balance: number; equity: number; margin: number; free_margin: number; profit: number; accounts?: { connector: string; balance: number; equity: number; currency: string }[] } | null>(null);
   const [dailyPnl, setDailyPnl] = useState<{ daily_pnl: number; trade_count: number; wins: number; losses: number } | null>(null);
   const [news, setNews] = useState<
     { headline: string; source: string; sentiment_label: string; sentiment_score: number; created_at: string }[]
@@ -269,8 +269,22 @@ export default function DashboardPage() {
       )}
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 sm:gap-4">
-        <StatCard icon={Wallet} label="Balance" value={account ? `$${account.balance.toLocaleString("en", { minimumFractionDigits: 2 })}` : "—"} variant="gold" />
+      <div className="grid grid-cols-2 lg:grid-cols-6 gap-3 sm:gap-4">
+        {account?.accounts && account.accounts.length > 1 ? (
+          <>
+            {account.accounts.map((acc, i) => (
+              <StatCard
+                key={i}
+                icon={Wallet}
+                label={acc.connector === "binance" ? "Binance" : "MT5"}
+                value={`${acc.currency === "USDT" ? "₮" : "$"}${acc.balance.toLocaleString("en", { minimumFractionDigits: 2 })}`}
+                variant={acc.connector === "binance" ? "default" : "gold"}
+              />
+            ))}
+          </>
+        ) : (
+          <StatCard icon={Wallet} label="Balance" value={account ? `$${account.balance.toLocaleString("en", { minimumFractionDigits: 2 })}` : "—"} variant="gold" />
+        )}
         <StatCard
           icon={TrendingUp}
           label="Unrealized P&L"

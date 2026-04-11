@@ -97,8 +97,8 @@ async def get_status(symbol: str | None = Query(None)):
 @router.get("/account")
 async def get_account():
     mgr = get_manager()
-    # Account is shared across all symbols (same MT5 account)
     first_engine = next(iter(mgr.engines.values()))
+
     if first_engine.paper_trade:
         unrealized = sum(
             p.get("profit", 0)
@@ -112,11 +112,40 @@ async def get_account():
             "margin": 0,
             "free_margin": balance + unrealized,
             "profit": unrealized,
+            "accounts": [],
         }
-    result = await first_engine.connector.get_account()
-    if not result.get("success"):
-        return {"balance": 0, "equity": 0, "margin": 0, "free_margin": 0, "profit": 0, "currency": "USD", "error": result.get("error")}
-    return result["data"]
+
+    # Collect balances from each unique connector
+    seen_connectors: set[int] = set()
+    accounts: list[dict] = []
+
+    for symbol, engine in mgr.engines.items():
+        conn_id = id(engine.connector)
+        if conn_id in seen_connectors:
+            continue
+        seen_connectors.add(conn_id)
+
+        result = await engine.connector.get_account()
+        if result.get("success"):
+            data = result["data"]
+            # Detect connector type
+            is_binance = hasattr(engine.connector, '_sign')  # BinanceConnector has _sign method
+            accounts.append({
+                "connector": "binance" if is_binance else "mt5",
+                "balance": data.get("balance", 0),
+                "equity": data.get("equity", 0),
+                "margin": data.get("margin", 0),
+                "free_margin": data.get("free_margin", 0),
+                "profit": data.get("profit", 0),
+                "currency": data.get("currency", "USD"),
+            })
+
+    # Primary balance = first account (MT5) for backward compat
+    primary = accounts[0] if accounts else {"balance": 0, "equity": 0, "margin": 0, "free_margin": 0, "profit": 0}
+    return {
+        **primary,
+        "accounts": accounts,
+    }
 
 
 @router.put("/strategy")
