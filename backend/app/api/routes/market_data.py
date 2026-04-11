@@ -52,5 +52,7 @@ async def get_symbols():
             "price_decimals": profile.get("price_decimals", 2),
             "max_lot": profile.get("max_lot", 1.0),
             "default_lot": profile.get("default_lot", 0.1),
+            "ml_tp_pips": profile.get("ml_tp_pips", 5.0),
+            "ml_sl_pips": profile.get("ml_sl_pips", 5.0),
         })
     return {"symbols": symbols}

@@ -13,7 +13,7 @@ import { StatCard } from "@/components/ui/stat-card";
 import { trainModel, getModelStatus, mlPredict, getDataStatus, collectData, getSymbols } from "@/lib/api";
 import { SymbolTabs } from "@/components/ui/symbol-tabs";
 
-type SymbolInfo = { symbol: string; display_name: string; state: string; timeframe?: string };
+type SymbolInfo = { symbol: string; display_name: string; state: string; timeframe?: string; ml_tp_pips?: number; ml_sl_pips?: number };
 
 export default function MLPage() {
   const [symbols, setSymbols] = useState<SymbolInfo[]>([]);
@@ -66,12 +66,14 @@ export default function MLPage() {
     setPrediction(null);
     setCollectResult(null);
     setCollectError(null);
-    // Sync timeframe from symbol profile
+    // Sync timeframe + TP/SL from symbol profile
     const info = symbols.find((s) => s.symbol === activeSymbol);
     if (info?.timeframe) {
       setCollectTimeframe(info.timeframe);
       setTrainTimeframe(info.timeframe);
     }
+    if (info?.ml_tp_pips) setTpPips(info.ml_tp_pips);
+    if (info?.ml_sl_pips) setSlPips(info.ml_sl_pips);
   }, [activeSymbol, symbols]);
 
   const handleCollect = async () => {

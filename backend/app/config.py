@@ -13,7 +13,9 @@ SYMBOL_PROFILES: dict[str, dict] = {
         "price_decimals": 2,
         "sl_atr_mult": 1.5,
         "tp_atr_mult": 2.0,
-        "contract_size": 100,  # profit = diff * lot * contract_size
+        "contract_size": 100,
+        "ml_tp_pips": 5.0,
+        "ml_sl_pips": 5.0,
     },
     "OILCash": {
         "display_name": "WTI Oil",
@@ -25,6 +27,8 @@ SYMBOL_PROFILES: dict[str, dict] = {
         "sl_atr_mult": 1.5,
         "tp_atr_mult": 2.0,
         "contract_size": 100,
+        "ml_tp_pips": 0.5,
+        "ml_sl_pips": 0.5,
     },
     "BTCUSD": {
         "display_name": "Bitcoin (Binance)",
@@ -36,6 +40,8 @@ SYMBOL_PROFILES: dict[str, dict] = {
         "sl_atr_mult": 2.0,
         "tp_atr_mult": 3.0,
         "contract_size": 1,
+        "ml_tp_pips": 500.0,
+        "ml_sl_pips": 500.0,
     },
     "USDJPY": {
         "display_name": "USD/JPY",
@@ -47,6 +53,8 @@ SYMBOL_PROFILES: dict[str, dict] = {
         "sl_atr_mult": 1.5,
         "tp_atr_mult": 2.0,
         "contract_size": 100000,
+        "ml_tp_pips": 0.5,
+        "ml_sl_pips": 0.5,
     },
 }
 
