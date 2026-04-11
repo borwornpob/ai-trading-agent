@@ -27,7 +27,7 @@ SYMBOL_PROFILES: dict[str, dict] = {
         "contract_size": 100,
     },
     "BTCUSD": {
-        "display_name": "Bitcoin",
+        "display_name": "Bitcoin (Binance)",
         "default_timeframe": "M15",
         "pip_value": 1.0,
         "default_lot": 0.01,
@@ -65,6 +65,16 @@ class Settings(BaseSettings):
 
     # AI
     anthropic_api_key: str = ""
+
+    # Binance (for BTCUSD — uses Binance API instead of MT5)
+    binance_api_key: str = ""
+    binance_api_secret: str = ""
+    binance_base_url: str = "https://testnet.binance.vision"  # testnet default; live = https://api.binance.com
+    binance_symbols: str = ""  # comma-separated symbols to route via Binance, e.g. "BTCUSD"
+
+    @property
+    def binance_symbol_list(self) -> list[str]:
+        return [s.strip() for s in self.binance_symbols.split(",") if s.strip()]
 
     # Bot Config
     symbol: str = "GOLD"  # kept for backward compat

@@ -108,6 +108,8 @@ async def lifespan(app: FastAPI):
     scheduler.stop()
     await manager.stop()
     await connector.close()
+    if manager._binance_connector:
+        await manager._binance_connector.close()
     await db_session.close()
     await redis_client.close()
 
