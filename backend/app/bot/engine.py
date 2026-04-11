@@ -5,7 +5,39 @@ Bot Engine — main trading loop integrating strategy, risk, AI sentiment, and o
 import enum
 import json
 import random
+import time
 from datetime import datetime, timezone
+
+from app.constants import (
+    BREAKEVEN_ATR_MULT,
+    DEFAULT_ATR_FALLBACK,
+    DEFAULT_ATR_PCT_FALLBACK,
+    DEFAULT_OHLCV_BARS,
+    DEFAULT_TRAILING_START_ATR,
+    DEFAULT_TRAILING_STEP_ATR,
+    H1_BARS,
+    HIGH_VOL_THRESHOLD,
+    HIGH_VOL_TRAIL_FACTOR,
+    KELLY_MIN_WIN_RATE,
+    KELLY_RECENT_TRADES,
+    LOW_VOL_THRESHOLD,
+    LOW_VOL_TRAIL_FACTOR,
+    MIN_KELLY_TRADES,
+    MIN_LOT,
+    MT5_MAGIC_NUMBER,
+    MTF_EMA_ABOVE,
+    MTF_EMA_BELOW,
+    PAPER_INITIAL_BALANCE,
+    PAPER_TICKET_START,
+    PARTIAL_TP_CLOSE_PCT,
+    PROFIT_LOCK_ATR_MULT,
+    SCALE_IN_ATR_MULT,
+    SCALE_IN_LOT_FACTOR,
+    STREAK_RECENT_TRADES,
+    TIGHT_TRAIL_STEP_ATR,
+    WARMUP_MIN_LOT_PCT,
+    WARMUP_SECONDS,
+)
 
 
 def _naive_utc() -> datetime:
@@ -26,9 +58,9 @@ def _get_h1_trend(df) -> int:
         ema21 = _ema(closes, 21)
         current_price = closes.iloc[-1]
         ema_val = ema21.iloc[-1]
-        if current_price > ema_val * 1.0005:   # price clearly above EMA
+        if current_price > ema_val * MTF_EMA_ABOVE:
             return 1
-        elif current_price < ema_val * 0.9995:  # price clearly below EMA
+        elif current_price < ema_val * MTF_EMA_BELOW:
             return -1
         return 0
     except Exception:
@@ -41,7 +73,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.ai.context_builder import AIContextBuilder
 from app.ai.news_sentiment import NewsSentimentAnalyzer
 from app.config import settings
-from app.db.models import BotEvent, BotEventType, Trade
+from app.db.models import BotEvent, BotEventType, OrderAudit, Trade
 from app.mt5.connector import MT5BridgeConnector
 from app.mt5.market_data import MarketDataService
 from app.mt5.order_executor import OrderExecutor
@@ -111,15 +143,17 @@ class BotEngine:
         # Paper trade mode
         self.paper_trade = settings.paper_trade
         self._paper_positions: list[dict] = []
-        self._paper_ticket_counter = 900000
-        self._paper_balance = 10000.0  # Virtual balance
+        self._paper_ticket_counter = PAPER_TICKET_START
+        self._paper_balance = PAPER_INITIAL_BALANCE
 
         # Trailing stop config
         self.trailing_stop_enabled = True
-        self.trailing_start_atr = 1.0   # Activate trailing after profit > start_atr * ATR
-        self.trailing_step_atr = 0.5    # Trail SL at step_atr * ATR behind price
+        self.trailing_start_atr = DEFAULT_TRAILING_START_ATR
+        self.trailing_step_atr = DEFAULT_TRAILING_STEP_ATR
         self._position_atr: dict[int, float] = {}  # ticket → ATR at entry time
+        self._position_atr_pct: dict[int, float] = {}  # ticket → ATR% at entry time
         self._position_entry_time: dict[int, datetime] = {}  # ticket → entry time
+        self._position_group: dict[int, list[int]] = {}  # parent ticket → add-on tickets
         self._position_partial_closed: set[int] = set()  # tickets that had partial TP taken
         self._position_breakeven: set[int] = set()  # tickets moved to breakeven
         self.started_at: datetime | None = None
@@ -207,257 +241,30 @@ class BotEngine:
             return
 
         try:
-            # 1. Check circuit breaker
+            # 1. Check circuit breakers (per-symbol + global portfolio)
             account = await self.connector.get_account()
             if not account.get("success"):
                 logger.error("Cannot get account info")
                 return
-
             balance = account["data"]["balance"]
-            if await self.circuit_breaker.is_triggered(balance):
-                self.state = BotState.PAUSED
-                await self._log_event(BotEventType.CIRCUIT_BREAKER, "Circuit breaker triggered")
-                if self.notifier:
-                    await self._notify(self.notifier.send_error_alert("⚡ Circuit breaker triggered — bot paused"))
+
+            if await self._check_circuit_breakers(balance):
                 return
 
-            # Check global portfolio daily loss (across all symbols)
-            all_symbols = settings.symbol_list
-            if await CircuitBreaker.is_global_triggered(self.redis, all_symbols, balance):
-                self.state = BotState.PAUSED
-                await self._log_event(BotEventType.CIRCUIT_BREAKER, "Portfolio circuit breaker triggered (global daily loss)")
-                if self.notifier:
-                    await self._notify(self.notifier.send_error_alert("⚡ Portfolio circuit breaker — ALL symbols paused"))
+            # 2. Generate trading signal
+            result = await self._generate_signal()
+            if result is None:
+                return
+            signal, signal_label, df = result
+
+            # 3. Get AI sentiment and check trade permissions
+            ai_sentiment = await self._get_ai_sentiment()
+
+            if not await self._check_trade_permission(signal, signal_label, balance, ai_sentiment):
                 return
 
-            # 2. Fetch OHLCV and calculate signal
-            df = await self.market_data.get_ohlcv(self.symbol, self.timeframe, 200)
-            if df.empty:
-                return
-
-            # Lazy-load ML model from DB if strategy supports it
-            if hasattr(self.strategy, "_ensure_model"):
-                await self.strategy._ensure_model()
-
-            df = self.strategy.calculate(df)
-            if len(df) < 2:
-                return
-
-            signal = int(df.iloc[-2]["signal"])  # Previous bar's signal (confirmed candle)
-            if signal == 0:
-                return
-
-            # Phase G: Multi-timeframe H1 trend confirmation
-            if settings.use_mtf_filter:
-                h1_df = await self.market_data.get_ohlcv(self.symbol, "H1", 50)
-                h1_trend = _get_h1_trend(h1_df)
-                if h1_trend != 0 and h1_trend != signal:
-                    h1_label = "uptrend" if h1_trend == 1 else "downtrend"
-                    signal_label_tmp = "BUY" if signal == 1 else "SELL"
-                    logger.info(f"MTF filter blocked: M15={signal_label_tmp}, H1={h1_label}")
-                    await self._log_event(
-                        BotEventType.TRADE_BLOCKED,
-                        f"{signal_label_tmp} blocked: H1 {h1_label} disagrees"
-                    )
-                    return
-
-            self.last_signal_time = datetime.now(timezone.utc)
-            signal_label = "BUY" if signal == 1 else "SELL"
-            logger.info(f"Signal detected: {signal_label}")
-            await self._log_event(BotEventType.SIGNAL_DETECTED, f"{signal_label} signal on {self.symbol}")
-            await self._push_event("bot_event", {"type": "signal_detected", "signal": signal_label, "symbol": self.symbol})
-            if self.notifier:
-                await self._notify(self.notifier._send(f"📊 <b>Signal: {signal_label}</b> on {self.symbol}"))
-
-            # 3. Get AI sentiment (optional)
-            ai_sentiment = None
-            if self.sentiment_analyzer and self.risk_manager.use_ai_filter:
-                sentiment = await self.sentiment_analyzer.get_latest_sentiment(self.symbol)
-                if sentiment.confidence > 0:
-                    ai_sentiment = {"label": sentiment.label, "confidence": sentiment.confidence}
-
-            # 4. Check risk
-            positions = await self.executor.get_open_positions(self.symbol)
-            daily_pnl = await self.circuit_breaker.get_daily_pnl()
-
-            # Get trade patterns from cached context for risk adjustment
-            trade_patterns = None
-            if self._ai_context:
-                trade_patterns = self.context_builder.get_trade_patterns_for_risk(self._ai_context)
-
-            can_trade, reason = self.risk_manager.can_open_trade(
-                current_positions=len(positions),
-                daily_pnl=daily_pnl,
-                balance=balance,
-                signal=signal,
-                ai_sentiment=ai_sentiment,
-                trade_patterns=trade_patterns,
-            )
-            if not can_trade:
-                logger.info(f"Trade blocked: {reason}")
-                await self._log_event(BotEventType.TRADE_BLOCKED, f"{signal_label} blocked: {reason}")
-                await self._push_event("bot_event", {"type": "trade_blocked", "signal": signal_label, "reason": reason})
-                if self.notifier:
-                    await self._notify(self.notifier._send(f"🚫 <b>{signal_label} Blocked</b>\n{reason}"))
-                return
-
-            # Check portfolio exposure limit
-            if self._manager:
-                can_trade_portfolio, portfolio_reason = await self._manager.check_portfolio_limit(balance)
-                if not can_trade_portfolio:
-                    logger.info(f"Portfolio limit: {portfolio_reason}")
-                    await self._log_event(BotEventType.TRADE_BLOCKED, portfolio_reason)
-                    await self._push_event("bot_event", {"type": "trade_blocked", "signal": signal_label, "reason": portfolio_reason})
-                    return
-
-            # Check symbol correlation conflicts
-            if self._manager:
-                from app.risk.correlation import check_correlation_conflict
-                active_positions = await self._manager.get_active_positions()
-                has_conflict, conflict_reason = check_correlation_conflict(self.symbol, signal, active_positions)
-                if has_conflict:
-                    logger.info(f"Correlation conflict: {conflict_reason}")
-                    await self._log_event(BotEventType.TRADE_BLOCKED, conflict_reason)
-                    await self._push_event("bot_event", {"type": "trade_blocked", "signal": signal_label, "reason": conflict_reason})
-                    return
-
-            # 5. Calculate lot size and SL/TP
-            atr = df.iloc[-2].get("atr", 10.0)
-            tick = await self.market_data.get_current_tick(self.symbol)
-            if not tick:
-                return
-
-            entry_price = tick["ask"] if signal == 1 else tick["bid"]
-            sl_tp = self.risk_manager.calculate_sl_tp(entry_price, signal, atr)
-            sl_pips = abs(entry_price - sl_tp.sl)
-            # Calculate ATR as percentage of price for vol adjustment
-            atr_pct = atr / entry_price if entry_price > 0 else 0
-
-            # Position sizing: Kelly Criterion if enough history, otherwise fixed risk
-            lot = await self._calculate_position_size(balance, sl_pips, atr_pct)
-
-            # 6. Apply warmup ramp-in (reduce lot during first 2 hours)
-            if self.started_at:
-                elapsed = (datetime.now(timezone.utc) - self.started_at).total_seconds()
-                warmup_seconds = 7200  # 2 hours
-                if elapsed < warmup_seconds:
-                    ramp_pct = max(elapsed / warmup_seconds, 0.25)  # min 25% lot
-                    lot = max(round(lot * ramp_pct, 2), 0.01)
-                    logger.info(f"Warmup ramp-in [{self.symbol}]: {ramp_pct:.0%} — lot={lot}")
-
-            # Apply consecutive loss streak reduction
-            try:
-                from sqlalchemy import select as _select
-                stmt = (
-                    _select(Trade)
-                    .where(Trade.symbol == self.symbol, Trade.profit.isnot(None))
-                    .order_by(Trade.id.desc())
-                    .limit(5)
-                )
-                result = await self.db.execute(stmt)
-                recent = result.scalars().all()
-                consecutive_losses = 0
-                for t in recent:
-                    if t.profit <= 0:
-                        consecutive_losses += 1
-                    else:
-                        break
-                if consecutive_losses >= 2:
-                    lot = self.risk_manager.adjust_for_streak(lot, consecutive_losses, 0)
-                    logger.info(f"Loss streak [{self.symbol}]: {consecutive_losses} consecutive → lot={lot}")
-            except Exception:
-                pass
-
-            # Place order (real or paper)
-            order_type = "BUY" if signal == 1 else "SELL"
-            comment = f"{self.strategy.name}"
-            tag = "📝 PAPER" if self.paper_trade else ""
-
-            if self.paper_trade:
-                # Paper trade: simulate order fill with realistic slippage
-                self._paper_ticket_counter += 1
-                ticket = self._paper_ticket_counter
-                # Simulate 1-3 pips slippage (unfavorable direction)
-                tick_size = 10 ** (-self.risk_manager.price_decimals)
-                slippage = random.uniform(1, 3) * tick_size
-                fill_price = entry_price + slippage if signal == 1 else entry_price - slippage
-                fill_price = round(fill_price, self.risk_manager.price_decimals)
-                result = {"success": True, "data": {
-                    "ticket": ticket, "price": fill_price,
-                    "lot": lot, "type": order_type,
-                }}
-                self._paper_positions.append({
-                    "ticket": ticket, "symbol": self.symbol,
-                    "type": order_type, "lot": lot,
-                    "open_price": fill_price, "current_price": fill_price,
-                    "sl": sl_tp.sl, "tp": sl_tp.tp,
-                    "profit": 0.0, "open_time": datetime.now(timezone.utc).isoformat(),
-                    "comment": comment, "magic": 234000,
-                })
-                logger.info(f"PAPER trade: {order_type} {lot} {self.symbol} @ {entry_price}")
-            else:
-                result = await self.executor.place_order(
-                    self.symbol, order_type, lot, sl_tp.sl, sl_tp.tp, comment
-                )
-
-            if not result.get("success"):
-                error_msg = result.get("error", "Unknown error")
-                logger.error(f"Order failed: {order_type} {lot} {self.symbol} — {error_msg}")
-                await self._log_event(BotEventType.ORDER_FAILED, f"{order_type} {lot} {self.symbol}: {error_msg}")
-                await self._push_event("bot_event", {"type": "order_failed", "order": order_type, "symbol": self.symbol, "lot": lot, "error": error_msg})
-                if self.notifier:
-                    await self._notify(self.notifier._send(f"❌ <b>Order Failed</b>\n{order_type} {lot} {self.symbol}\n{error_msg}"))
-                return
-
-            if result.get("success"):
-                # 7. Save trade to DB
-                sentiment_data = ai_sentiment or {}
-                actual_fill = result["data"].get("price", entry_price)
-
-                # Track slippage
-                slippage_price = abs(actual_fill - entry_price)
-                if slippage_price > 0:
-                    logger.info(f"Slippage [{self.symbol}]: expected={entry_price}, fill={actual_fill}, diff={slippage_price:.{self.risk_manager.price_decimals}f}")
-
-                trade = Trade(
-                    ticket=result["data"]["ticket"],
-                    symbol=self.symbol,
-                    type=order_type,
-                    lot=lot,
-                    open_price=actual_fill,
-                    expected_price=entry_price,
-                    sl=sl_tp.sl,
-                    tp=sl_tp.tp,
-                    open_time=_naive_utc(),
-                    strategy_name=self.strategy.name,
-                    ai_sentiment_score=sentiment_data.get("confidence"),
-                    ai_sentiment_label=sentiment_data.get("label"),
-                )
-                await self._save_trade(trade)
-
-                await self._log_event(
-                    BotEventType.TRADE_OPENED,
-                    f"{tag}{order_type} {lot} {self.symbol} @ {entry_price} SL={sl_tp.sl} TP={sl_tp.tp}",
-                )
-
-                # Push event via Redis
-                await self._push_event("bot_event", {
-                    "type": "trade_opened",
-                    "data": result["data"],
-                    "sentiment": sentiment_data,
-                })
-
-                # Store ATR for trailing stop
-                self._position_atr[result["data"]["ticket"]] = atr
-                self._position_entry_time[result["data"]["ticket"]] = _naive_utc()
-
-                # Telegram: trade opened
-                if self.notifier:
-                    paper_label = " [PAPER]" if self.paper_trade else ""
-                    await self._notify(self.notifier.send_trade_alert(
-                        f"{order_type}{paper_label}", self.symbol, entry_price, sl_tp.sl, sl_tp.tp, lot,
-                        sentiment_data.get("label", ""),
-                    ))
+            # 4. Size position and place order
+            await self._size_and_place_order(signal, signal_label, df, balance, ai_sentiment)
 
         except Exception as e:
             logger.error(f"Bot engine error: {e}")
@@ -465,6 +272,294 @@ class BotEngine:
             await self._log_event(BotEventType.ERROR, str(e))
             if self.notifier:
                 await self._notify(self.notifier.send_error_alert(f"Bot engine error: {e}"))
+
+    async def _check_circuit_breakers(self, balance: float) -> bool:
+        """Check per-symbol and global circuit breakers. Returns True if trading should stop."""
+        import asyncio as _asyncio
+
+        all_symbols = settings.symbol_list
+        symbol_triggered, global_triggered = await _asyncio.gather(
+            self.circuit_breaker.is_triggered(balance),
+            CircuitBreaker.is_global_triggered(self.redis, all_symbols, balance),
+        )
+
+        if symbol_triggered:
+            self.state = BotState.PAUSED
+            await self._log_event(BotEventType.CIRCUIT_BREAKER, "Circuit breaker triggered")
+            if self.notifier:
+                await self._notify(self.notifier.send_error_alert("⚡ Circuit breaker triggered — bot paused"))
+            return True
+
+        if global_triggered:
+            self.state = BotState.PAUSED
+            await self._log_event(BotEventType.CIRCUIT_BREAKER, "Portfolio circuit breaker triggered (global daily loss)")
+            if self.notifier:
+                await self._notify(self.notifier.send_error_alert("⚡ Portfolio circuit breaker — ALL symbols paused"))
+            return True
+
+        return False
+
+    async def _generate_signal(self) -> tuple[int, str, "pd.DataFrame"] | None:
+        """Fetch OHLCV, calculate strategy, apply MTF filter. Returns (signal, label, df) or None."""
+        df = await self.market_data.get_ohlcv(self.symbol, self.timeframe, DEFAULT_OHLCV_BARS)
+        if df.empty:
+            return None
+
+        # Lazy-load ML model from DB if strategy supports it
+        if hasattr(self.strategy, "_ensure_model"):
+            await self.strategy._ensure_model()
+
+        df = self.strategy.calculate(df)
+        if len(df) < 2:
+            return None
+
+        signal = int(df.iloc[-2]["signal"])  # Previous bar's signal (confirmed candle)
+        if signal == 0:
+            return None
+
+        # Multi-timeframe H1 trend confirmation
+        if settings.use_mtf_filter:
+            h1_df = await self.market_data.get_ohlcv(self.symbol, "H1", H1_BARS)
+            h1_trend = _get_h1_trend(h1_df)
+            if h1_trend != 0 and h1_trend != signal:
+                h1_label = "uptrend" if h1_trend == 1 else "downtrend"
+                signal_label_tmp = "BUY" if signal == 1 else "SELL"
+                logger.info(f"MTF filter blocked: M15={signal_label_tmp}, H1={h1_label}")
+                await self._log_event(
+                    BotEventType.TRADE_BLOCKED,
+                    f"{signal_label_tmp} blocked: H1 {h1_label} disagrees"
+                )
+                return None
+
+        self.last_signal_time = datetime.now(timezone.utc)
+        signal_label = "BUY" if signal == 1 else "SELL"
+        logger.info(f"Signal detected: {signal_label}")
+        await self._log_event(BotEventType.SIGNAL_DETECTED, f"{signal_label} signal on {self.symbol}")
+        await self._push_event("bot_event", {"type": "signal_detected", "signal": signal_label, "symbol": self.symbol})
+        if self.notifier:
+            await self._notify(self.notifier._send(f"📊 <b>Signal: {signal_label}</b> on {self.symbol}"))
+
+        return signal, signal_label, df
+
+    async def _get_ai_sentiment(self) -> dict | None:
+        """Get AI sentiment if enabled. Returns sentiment dict or None."""
+        if self.sentiment_analyzer and self.risk_manager.use_ai_filter:
+            sentiment = await self.sentiment_analyzer.get_latest_sentiment(self.symbol)
+            if sentiment.confidence > 0:
+                return {"label": sentiment.label, "confidence": sentiment.confidence}
+        return None
+
+    async def _check_trade_permission(
+        self, signal: int, signal_label: str, balance: float, ai_sentiment: dict | None,
+    ) -> bool:
+        """Check risk limits, portfolio exposure, and correlation conflicts. Returns True if allowed."""
+        import asyncio as _asyncio
+
+        positions, daily_pnl = await _asyncio.gather(
+            self.executor.get_open_positions(self.symbol),
+            self.circuit_breaker.get_daily_pnl(),
+        )
+
+        trade_patterns = None
+        if self._ai_context:
+            trade_patterns = self.context_builder.get_trade_patterns_for_risk(self._ai_context)
+
+        can_trade, reason = self.risk_manager.can_open_trade(
+            current_positions=len(positions),
+            daily_pnl=daily_pnl,
+            balance=balance,
+            signal=signal,
+            ai_sentiment=ai_sentiment,
+            trade_patterns=trade_patterns,
+        )
+        if not can_trade:
+            logger.info(f"Trade blocked: {reason}")
+            await self._log_event(BotEventType.TRADE_BLOCKED, f"{signal_label} blocked: {reason}")
+            await self._push_event("bot_event", {"type": "trade_blocked", "signal": signal_label, "reason": reason})
+            if self.notifier:
+                await self._notify(self.notifier._send(f"🚫 <b>{signal_label} Blocked</b>\n{reason}"))
+            return False
+
+        # Check portfolio exposure limit
+        if self._manager:
+            can_trade_portfolio, portfolio_reason = await self._manager.check_portfolio_limit(balance)
+            if not can_trade_portfolio:
+                logger.info(f"Portfolio limit: {portfolio_reason}")
+                await self._log_event(BotEventType.TRADE_BLOCKED, portfolio_reason)
+                await self._push_event("bot_event", {"type": "trade_blocked", "signal": signal_label, "reason": portfolio_reason})
+                return False
+
+        # Check symbol correlation conflicts
+        if self._manager:
+            from app.risk.correlation import check_correlation_conflict
+            active_positions = await self._manager.get_active_positions()
+            has_conflict, conflict_reason = check_correlation_conflict(self.symbol, signal, active_positions)
+            if has_conflict:
+                logger.info(f"Correlation conflict: {conflict_reason}")
+                await self._log_event(BotEventType.TRADE_BLOCKED, conflict_reason)
+                await self._push_event("bot_event", {"type": "trade_blocked", "signal": signal_label, "reason": conflict_reason})
+                return False
+
+        return True
+
+    async def _size_and_place_order(
+        self, signal: int, signal_label: str, df, balance: float, ai_sentiment: dict | None,
+    ) -> None:
+        """Calculate lot size, apply adjustments, and place order (real or paper)."""
+        atr = df.iloc[-2].get("atr", DEFAULT_ATR_FALLBACK)
+        tick = await self.market_data.get_current_tick(self.symbol)
+        if not tick:
+            return
+
+        entry_price = tick["ask"] if signal == 1 else tick["bid"]
+        sl_tp = self.risk_manager.calculate_sl_tp(entry_price, signal, atr)
+        sl_pips = abs(entry_price - sl_tp.sl)
+        atr_pct = atr / entry_price if entry_price > 0 else 0
+
+        # Position sizing: Kelly Criterion if enough history, otherwise fixed risk
+        lot = await self._calculate_position_size(balance, sl_pips, atr_pct)
+
+        # Apply warmup ramp-in
+        lot = self._apply_warmup(lot)
+
+        # Apply consecutive loss streak reduction
+        lot = await self._apply_streak_adjustment(lot)
+
+        # Place order (real or paper)
+        order_type = "BUY" if signal == 1 else "SELL"
+        comment = f"{self.strategy.name}"
+        tag = "📝 PAPER" if self.paper_trade else ""
+
+        start_time = time.monotonic()
+        if self.paper_trade:
+            result = self._create_paper_order(order_type, lot, entry_price, sl_tp, comment)
+        else:
+            result = await self.executor.place_order(
+                self.symbol, order_type, lot, sl_tp.sl, sl_tp.tp, comment
+            )
+        latency_ms = int((time.monotonic() - start_time) * 1000)
+
+        # Audit log (truly fire-and-forget — don't block order path)
+        import asyncio as _asyncio
+        _asyncio.create_task(self._log_order_audit(
+            order_type, lot, sl_tp.sl, sl_tp.tp, entry_price, result,
+            self.strategy.name, latency_ms,
+        ))
+
+        if not result.get("success"):
+            error_msg = result.get("error", "Unknown error")
+            logger.error(f"Order failed: {order_type} {lot} {self.symbol} — {error_msg}")
+            await self._log_event(BotEventType.ORDER_FAILED, f"{order_type} {lot} {self.symbol}: {error_msg}")
+            await self._push_event("bot_event", {"type": "order_failed", "order": order_type, "symbol": self.symbol, "lot": lot, "error": error_msg})
+            if self.notifier:
+                await self._notify(self.notifier._send(f"❌ <b>Order Failed</b>\n{order_type} {lot} {self.symbol}\n{error_msg}"))
+            return
+
+        # Save trade to DB
+        sentiment_data = ai_sentiment or {}
+        actual_fill = result["data"].get("price", entry_price)
+
+        slippage_price = abs(actual_fill - entry_price)
+        if slippage_price > 0:
+            logger.info(f"Slippage [{self.symbol}]: expected={entry_price}, fill={actual_fill}, diff={slippage_price:.{self.risk_manager.price_decimals}f}")
+
+        trade = Trade(
+            ticket=result["data"]["ticket"],
+            symbol=self.symbol,
+            type=order_type,
+            lot=lot,
+            open_price=actual_fill,
+            expected_price=entry_price,
+            sl=sl_tp.sl,
+            tp=sl_tp.tp,
+            open_time=_naive_utc(),
+            strategy_name=self.strategy.name,
+            ai_sentiment_score=sentiment_data.get("confidence"),
+            ai_sentiment_label=sentiment_data.get("label"),
+        )
+        await self._save_trade(trade)
+
+        await self._log_event(
+            BotEventType.TRADE_OPENED,
+            f"{tag}{order_type} {lot} {self.symbol} @ {entry_price} SL={sl_tp.sl} TP={sl_tp.tp}",
+        )
+        await self._push_event("bot_event", {
+            "type": "trade_opened",
+            "data": result["data"],
+            "sentiment": sentiment_data,
+        })
+
+        # Store ATR for trailing stop
+        self._position_atr[result["data"]["ticket"]] = atr
+        self._position_atr_pct[result["data"]["ticket"]] = atr_pct
+        self._position_entry_time[result["data"]["ticket"]] = _naive_utc()
+
+        if self.notifier:
+            paper_label = " [PAPER]" if self.paper_trade else ""
+            await self._notify(self.notifier.send_trade_alert(
+                f"{order_type}{paper_label}", self.symbol, entry_price, sl_tp.sl, sl_tp.tp, lot,
+                sentiment_data.get("label", ""),
+            ))
+
+    def _apply_warmup(self, lot: float) -> float:
+        """Reduce lot during warmup period."""
+        if not self.started_at:
+            return lot
+        elapsed = (datetime.now(timezone.utc) - self.started_at).total_seconds()
+        if elapsed < WARMUP_SECONDS:
+            ramp_pct = max(elapsed / WARMUP_SECONDS, WARMUP_MIN_LOT_PCT)
+            lot = max(round(lot * ramp_pct, 2), MIN_LOT)
+            logger.info(f"Warmup ramp-in [{self.symbol}]: {ramp_pct:.0%} — lot={lot}")
+        return lot
+
+    async def _apply_streak_adjustment(self, lot: float) -> float:
+        """Reduce lot after consecutive losses."""
+        try:
+            from sqlalchemy import select as _select
+            stmt = (
+                _select(Trade)
+                .where(Trade.symbol == self.symbol, Trade.profit.isnot(None))
+                .order_by(Trade.id.desc())
+                .limit(STREAK_RECENT_TRADES)
+            )
+            result = await self.db.execute(stmt)
+            recent = result.scalars().all()
+            consecutive_losses = 0
+            for t in recent:
+                if t.profit <= 0:
+                    consecutive_losses += 1
+                else:
+                    break
+            if consecutive_losses >= 2:
+                lot = self.risk_manager.adjust_for_streak(lot, consecutive_losses, 0)
+                logger.info(f"Loss streak [{self.symbol}]: {consecutive_losses} consecutive → lot={lot}")
+        except Exception:
+            pass
+        return lot
+
+    def _create_paper_order(self, order_type: str, lot: float, entry_price: float, sl_tp, comment: str) -> dict:
+        """Create a simulated paper trade order."""
+        self._paper_ticket_counter += 1
+        ticket = self._paper_ticket_counter
+        signal = 1 if order_type == "BUY" else -1
+        tick_size = 10 ** (-self.risk_manager.price_decimals)
+        slippage = random.uniform(1, 3) * tick_size
+        fill_price = entry_price + slippage if signal == 1 else entry_price - slippage
+        fill_price = round(fill_price, self.risk_manager.price_decimals)
+        result = {"success": True, "data": {
+            "ticket": ticket, "price": fill_price,
+            "lot": lot, "type": order_type,
+        }}
+        self._paper_positions.append({
+            "ticket": ticket, "symbol": self.symbol,
+            "type": order_type, "lot": lot,
+            "open_price": fill_price, "current_price": fill_price,
+            "sl": sl_tp.sl, "tp": sl_tp.tp,
+            "profit": 0.0, "open_time": datetime.now(timezone.utc).isoformat(),
+            "comment": comment, "magic": MT5_MAGIC_NUMBER,
+        })
+        logger.info(f"PAPER trade: {order_type} {lot} {self.symbol} @ {entry_price}")
+        return result
 
     async def fetch_and_analyze_sentiment(self):
         """Fetch news and run sentiment analysis with enriched context."""
@@ -663,8 +758,8 @@ class BotEngine:
             else:
                 continue
 
-            # Stage 1: Breakeven stop after profit > 0.5x ATR
-            if profit_distance > pos_atr * 0.5 and ticket not in self._position_breakeven:
+            # Stage 1: Breakeven stop after profit > BREAKEVEN_ATR_MULT * ATR
+            if profit_distance > pos_atr * BREAKEVEN_ATR_MULT and ticket not in self._position_breakeven:
                 # Use symbol-appropriate tick size (1 pip above/below entry)
                 tick_size = 10 ** (-self.risk_manager.price_decimals)
                 be_price = open_price + (tick_size if pos_type == "BUY" else -tick_size)
@@ -677,25 +772,80 @@ class BotEngine:
                     await self.executor.modify_position(ticket, sl=round(be_price, self.risk_manager.price_decimals))
                     self._position_breakeven.add(ticket)
 
-            # Stage 1b: Partial TP — close 50% at first ATR target
+            # Stage 1b: Partial TP — close and reopen at reduced lot
             if ticket not in self._position_partial_closed and profit_distance >= pos_atr * settings.partial_tp_atr_mult:
-                logger.info(f"Partial TP {pos_type} {ticket}: profit={profit_distance:.{self.risk_manager.price_decimals}f} >= {pos_atr * settings.partial_tp_atr_mult:.{self.risk_manager.price_decimals}f}")
-                # Close position entirely (MT5 doesn't easily support partial close via ticket)
-                # Mark as partial-closed to avoid re-triggering
                 self._position_partial_closed.add(ticket)
+                if settings.enable_partial_tp:
+                    await self._execute_partial_tp(ticket, pos_type, lot, open_price, current_sl, pos.get("tp", 0))
+                    continue  # skip trailing — position replaced
+                else:
+                    logger.info(f"Partial TP mark {pos_type} {ticket}: profit={profit_distance:.{self.risk_manager.price_decimals}f}")
 
-            # Stage 2: Chandelier trailing after profit > 1x ATR
+            # Stage 2: Chandelier trailing after profit > start threshold
+            # Adaptive trail step based on volatility at entry
+            atr_pct = self._position_atr_pct.get(ticket, DEFAULT_ATR_PCT_FALLBACK)
+            trail_step = self.trailing_step_atr
+            if atr_pct > HIGH_VOL_THRESHOLD:
+                trail_step *= HIGH_VOL_TRAIL_FACTOR  # wider in high vol
+            elif atr_pct < LOW_VOL_THRESHOLD:
+                trail_step *= LOW_VOL_TRAIL_FACTOR  # tighter in low vol
+
+            # Profit-lock ratchet: tighten once profit exceeds 2x ATR
+            if profit_distance >= pos_atr * PROFIT_LOCK_ATR_MULT:
+                trail_step = TIGHT_TRAIL_STEP_ATR
+
             if profit_distance >= pos_atr * self.trailing_start_atr:
                 if pos_type == "BUY":
-                    new_sl = current_price - pos_atr * self.trailing_step_atr
+                    new_sl = current_price - pos_atr * trail_step
                     if new_sl > current_sl:
                         logger.info(f"Trailing BUY {ticket}: SL {current_sl} → {new_sl:.{self.risk_manager.price_decimals}f}")
                         await self.executor.modify_position(ticket, sl=round(new_sl, self.risk_manager.price_decimals))
                 elif pos_type == "SELL":
-                    new_sl = current_price + pos_atr * self.trailing_step_atr
+                    new_sl = current_price + pos_atr * trail_step
                     if current_sl == 0 or new_sl < current_sl:
                         logger.info(f"Trailing SELL {ticket}: SL {current_sl} → {new_sl:.{self.risk_manager.price_decimals}f}")
                         await self.executor.modify_position(ticket, sl=round(new_sl, self.risk_manager.price_decimals))
+
+    async def _execute_partial_tp(self, ticket: int, pos_type: str, lot: float, entry_price: float, current_sl: float, current_tp: float):
+        """Close position and reopen at reduced lot for partial take profit."""
+        try:
+            # Close the full position
+            close_result = await self.executor.close_position(ticket)
+            if not close_result.get("success"):
+                logger.warning(f"Partial TP close failed for {ticket}: {close_result.get('error')}")
+                return
+
+            # Reopen at reduced lot with SL at breakeven
+            new_lot = max(round(lot * (1 - PARTIAL_TP_CLOSE_PCT), 2), MIN_LOT)
+            if new_lot < MIN_LOT:
+                logger.info(f"Partial TP {ticket}: remaining lot too small, fully closed")
+                return
+
+            tick_size = 10 ** (-self.risk_manager.price_decimals)
+            be_sl = entry_price + (tick_size if pos_type == "BUY" else -tick_size)
+
+            result = await self.executor.place_order(
+                self.symbol, pos_type, new_lot, be_sl, current_tp,
+                comment=f"partial_tp_from_{ticket}",
+            )
+            if result.get("success"):
+                new_ticket = result["data"]["ticket"]
+                atr = self._position_atr.get(ticket, DEFAULT_ATR_FALLBACK)
+                atr_pct = self._position_atr_pct.get(ticket, DEFAULT_ATR_PCT_FALLBACK)
+                self._position_atr[new_ticket] = atr
+                self._position_atr_pct[new_ticket] = atr_pct
+                self._position_entry_time[new_ticket] = _naive_utc()
+                self._position_breakeven.add(new_ticket)  # already at breakeven
+                logger.info(f"Partial TP {pos_type} {ticket}: closed, reopened {new_ticket} @ lot={new_lot}")
+            else:
+                logger.warning(f"Partial TP reopen failed for {ticket}: {result.get('error')}")
+
+            # Clean up old ticket tracking
+            self._position_atr.pop(ticket, None)
+            self._position_atr_pct.pop(ticket, None)
+            self._position_entry_time.pop(ticket, None)
+        except Exception as e:
+            logger.error(f"Partial TP execution error for {ticket}: {e}")
 
     async def _save_trade(self, trade: Trade, max_retries: int = 3):
         """Save trade to DB with retry and Redis fallback."""
@@ -735,14 +885,13 @@ class BotEngine:
 
     async def _calculate_position_size(self, balance: float, sl_pips: float, atr_pct: float) -> float:
         """Use Kelly Criterion if >= 20 closed trades, otherwise fixed risk sizing."""
-        MIN_KELLY_TRADES = 20
         try:
             from sqlalchemy import select
             stmt = (
                 select(Trade)
                 .where(Trade.symbol == self.symbol, Trade.profit.isnot(None))
                 .order_by(Trade.id.desc())
-                .limit(50)
+                .limit(KELLY_RECENT_TRADES)
             )
             result = await self.db.execute(stmt)
             trades = result.scalars().all()
@@ -754,7 +903,7 @@ class BotEngine:
                 avg_win = sum(t.profit for t in wins) / len(wins) if wins else 0
                 avg_loss = abs(sum(t.profit for t in losses) / len(losses)) if losses else 1
 
-                if win_rate >= 0.35 and avg_win > 0 and avg_loss > 0:
+                if win_rate >= KELLY_MIN_WIN_RATE and avg_win > 0 and avg_loss > 0:
                     lot = self.risk_manager.calculate_kelly_size(
                         balance, sl_pips, win_rate, avg_win, avg_loss,
                     )
@@ -809,8 +958,149 @@ class BotEngine:
             except Exception:
                 pass
 
+    async def _log_order_audit(
+        self, order_type: str, lot: float, sl: float, tp: float,
+        expected_price: float, result: dict, strategy_name: str, latency_ms: int,
+    ):
+        """Log order attempt to audit table (fire-and-forget, uses own session)."""
+        try:
+            from app.db.session import async_session
+
+            success = result.get("success", False)
+            audit = OrderAudit(
+                symbol=self.symbol,
+                order_type=order_type,
+                requested_lot=lot,
+                requested_sl=sl,
+                requested_tp=tp,
+                expected_price=expected_price,
+                fill_price=result.get("data", {}).get("price") if success else None,
+                ticket=result.get("data", {}).get("ticket") if success else None,
+                status="FILLED" if success else "ERROR",
+                error_message=result.get("error") if not success else None,
+                signal_source=strategy_name,
+                attempt_count=result.get("attempt_count", 1),
+                latency_ms=latency_ms,
+            )
+            async with async_session() as session:
+                session.add(audit)
+                await session.commit()
+        except Exception as e:
+            logger.debug(f"Order audit log failed (non-critical): {e}")
+
     async def _push_event(self, channel: str, data: dict):
         try:
             await self.redis.publish(channel, json.dumps(data))
         except Exception as e:
             logger.error(f"Failed to push event: {e}")
+
+    async def _recover_pending_trades(self):
+        """Recover trades that failed DB save and were stored in Redis fallback."""
+        key = f"pending_trades:{self.symbol}"
+        try:
+            pending = await self.redis.lrange(key, 0, -1)
+            if not pending:
+                return
+
+            logger.info(f"Recovering {len(pending)} pending trades [{self.symbol}]")
+            for raw in pending:
+                try:
+                    data = json.loads(raw)
+                    trade = Trade(
+                        ticket=data["ticket"],
+                        symbol=data["symbol"],
+                        type=data["type"],
+                        lot=data["lot"],
+                        open_price=data["open_price"],
+                        expected_price=data.get("expected_price"),
+                        sl=data.get("sl"),
+                        tp=data.get("tp"),
+                        open_time=datetime.fromisoformat(data["open_time"]) if data.get("open_time") else _naive_utc(),
+                        strategy_name=data.get("strategy_name"),
+                    )
+                    self.db.add(trade)
+                    await self.db.commit()
+                    await self.redis.lrem(key, 1, raw)
+                    logger.info(f"Recovered pending trade: ticket={data['ticket']}")
+                except Exception as e:
+                    logger.warning(f"Failed to recover pending trade: {e}")
+                    try:
+                        await self.db.rollback()
+                    except Exception:
+                        pass
+        except Exception as e:
+            logger.error(f"Pending trades recovery error [{self.symbol}]: {e}")
+
+    async def reconcile_positions(self):
+        """Compare DB open trades with MT5 positions to detect orphans and phantoms."""
+        if self.paper_trade:
+            return
+
+        try:
+            from sqlalchemy import select
+
+            # 1. Get current MT5 positions
+            positions = await self.executor.get_open_positions(self.symbol)
+            mt5_tickets = {p["ticket"] for p in positions}
+
+            # 2. Get DB trades that should be open (no close_time)
+            stmt = (
+                select(Trade)
+                .where(Trade.symbol == self.symbol, Trade.close_time.is_(None))
+            )
+            result = await self.db.execute(stmt)
+            db_trades = result.scalars().all()
+            db_tickets = {t.ticket for t in db_trades}
+
+            # 3. Orphan detection: in MT5 but not in DB
+            orphans = mt5_tickets - db_tickets
+            if orphans:
+                logger.warning(f"Orphaned positions [{self.symbol}]: {orphans} (in MT5, not in DB)")
+                await self._log_event(
+                    BotEventType.ERROR,
+                    f"Orphaned positions detected: {orphans}",
+                )
+                if self.notifier:
+                    await self._notify(self.notifier._send(
+                        f"⚠️ <b>Orphaned positions</b> [{self.symbol}]\nTickets in MT5 but not in DB: {orphans}"
+                    ))
+
+            # 4. Phantom detection: in DB but not in MT5
+            phantoms = db_tickets - mt5_tickets
+            if phantoms:
+                logger.warning(f"Phantom records [{self.symbol}]: {phantoms} (in DB, not in MT5)")
+                # Try to find close details from MT5 history
+                history_result = await self.connector.get_history(days=7)
+                history_deals = history_result.get("data", []) if history_result.get("success") else []
+                history_map = {d["ticket"]: d for d in history_deals}
+
+                for trade in db_trades:
+                    if trade.ticket not in phantoms:
+                        continue
+                    deal = history_map.get(trade.ticket)
+                    if deal:
+                        trade.close_price = deal["price"]
+                        trade.close_time = (
+                            datetime.fromisoformat(deal["time"]).replace(tzinfo=None)
+                            if deal.get("time")
+                            else _naive_utc()
+                        )
+                        trade.profit = deal.get("profit", 0)
+                        logger.info(f"Reconciled phantom #{trade.ticket}: closed @ {trade.close_price}, profit={trade.profit}")
+                    else:
+                        trade.close_time = _naive_utc()
+                        trade.profit = 0
+                        logger.warning(f"Reconciled phantom #{trade.ticket}: not found in 7-day history, marked closed with profit=0")
+
+                await self.db.commit()
+                await self._log_event(
+                    BotEventType.ERROR,
+                    f"Phantom records reconciled: {phantoms}",
+                )
+
+        except Exception as e:
+            logger.error(f"Position reconciliation error [{self.symbol}]: {e}")
+            try:
+                await self.db.rollback()
+            except Exception:
+                pass

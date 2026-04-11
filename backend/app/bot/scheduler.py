@@ -37,6 +37,10 @@ class BotScheduler:
 
         self.scheduler = AsyncIOScheduler()
         self._candle_job_ids: dict[str, str] = {}  # timeframe → job_id
+        self._health_monitor = None  # set via set_health_monitor()
+
+    def set_health_monitor(self, monitor):
+        self._health_monitor = monitor
 
     @property
     def _engines(self) -> dict[str, BotEngine]:
@@ -112,15 +116,46 @@ class BotScheduler:
             max_instances=1,
         )
 
-        # Weekly ML retrain: Sunday 01:00 UTC
+        # Weekly ML retrain: Monday 04:00 UTC (before market open, after macro collect)
         self.scheduler.add_job(
             self._ml_retrain_job,
             "cron",
-            day_of_week="sun",
-            hour=1,
+            day_of_week="mon",
+            hour=4,
             minute=0,
             id="ml_retrain",
             max_instances=1,
+        )
+
+        # Health check heartbeat every 30 seconds
+        if self._health_monitor:
+            self.scheduler.add_job(
+                self._health_check_job,
+                "interval",
+                seconds=30,
+                id="health_check",
+                max_instances=1,
+                coalesce=True,
+            )
+
+        # Pending trades recovery every 5 minutes
+        self.scheduler.add_job(
+            self._pending_trades_recovery_job,
+            "interval",
+            minutes=5,
+            id="pending_trades_recovery",
+            max_instances=1,
+            coalesce=True,
+        )
+
+        # Position reconciliation every 5 minutes
+        self.scheduler.add_job(
+            self._reconciliation_job,
+            "interval",
+            minutes=5,
+            id="position_reconciliation",
+            max_instances=1,
+            coalesce=True,
         )
 
         self.scheduler.start()
@@ -243,6 +278,24 @@ class BotScheduler:
         for symbol, engine in self._engines.items():
             await self._ml_retrain_symbol(symbol, engine)
 
+    async def _health_check_job(self):
+        if self._health_monitor:
+            await self._health_monitor.check()
+
+    async def _pending_trades_recovery_job(self):
+        tasks = [e._recover_pending_trades() for e in self._engines.values()]
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+
+    async def _reconciliation_job(self):
+        tasks = [
+            e.reconcile_positions()
+            for e in self._engines.values()
+            if e.state.value in ("RUNNING", "PAUSED") and not e.paper_trade
+        ]
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+
     async def _ml_retrain_symbol(self, symbol: str, engine):
         """Train ML model for a single symbol."""
         try:
@@ -275,8 +328,8 @@ class BotScheduler:
                     metrics = json.loads(current_log.metrics)
                     current_accuracy = metrics.get("accuracy", 0.0)
 
-                # Load last 6 months of data
-                from_date = (datetime.utcnow() - timedelta(days=180)).strftime("%Y-%m-%d")
+                # Load last 90 days of data (sliding window)
+                from_date = (datetime.utcnow() - timedelta(days=90)).strftime("%Y-%m-%d")
                 collector = DataCollector(session)
                 df = await collector.load_from_db(symbol, engine.timeframe, from_date=from_date)
 
@@ -284,21 +337,55 @@ class BotScheduler:
                     logger.warning(f"ML retrain [{symbol}] skipped: insufficient data ({len(df)} bars)")
                     return
 
+                # Load macro data for feature enrichment
+                macro_df = None
+                try:
+                    from app.data.macro import MacroDataService
+                    macro_service = MacroDataService(session)
+                    macro_df = await macro_service.get_macro_df_for_ml(from_date=from_date)
+                except Exception as e:
+                    logger.warning(f"ML retrain [{symbol}]: macro data unavailable ({e}), proceeding without")
+
+                # Load sentiment data for feature enrichment
+                sentiment_df = None
+                try:
+                    from app.ml.sentiment_features import get_sentiment_df_for_ml
+                    sentiment_df = await get_sentiment_df_for_ml(session, from_date=from_date)
+                except Exception as e:
+                    logger.debug(f"ML retrain [{symbol}]: sentiment data unavailable ({e})")
+
                 from app.ml.trainer import ModelTrainer
                 trainer = ModelTrainer()
-                X, y = trainer.prepare_dataset(df)
+                X, y = trainer.prepare_dataset(df, macro_df=macro_df, sentiment_df=sentiment_df)
                 if len(X) < 200:
                     logger.warning(f"ML retrain [{symbol}] skipped: insufficient labeled samples ({len(X)})")
                     return
 
-                # Train in executor to avoid blocking
+                # 14-day holdout validation split (~85/15)
+                split_idx = int(len(X) * 0.85)
+                X_train, X_val = X.iloc[:split_idx], X.iloc[split_idx:]
+                y_train, y_val = y.iloc[:split_idx], y.iloc[split_idx:]
+
+                # Train on training portion using walk-forward
                 loop = asyncio.get_event_loop()
-                new_result = await loop.run_in_executor(None, trainer.train_walk_forward, X, y)
+                new_result = await loop.run_in_executor(None, trainer.train_walk_forward, X_train, y_train)
 
-                new_accuracy = new_result.accuracy
-                logger.info(f"ML retrain [{symbol}]: new={new_accuracy:.4f}, current={current_accuracy:.4f}")
+                # Evaluate on holdout validation set
+                if len(X_val) > 20 and trainer.model is not None:
+                    available = [c for c in trainer.feature_columns if c in X_val.columns]
+                    val_preds = trainer.model.predict(X_val[available])
+                    import numpy as np
+                    val_pred_classes = np.array([p.argmax() for p in val_preds])
+                    signal_map = {0: -1, 1: 0, 2: 1}
+                    val_pred_signals = np.array([signal_map[c] for c in val_pred_classes])
+                    new_accuracy = float((val_pred_signals == y_val.values).mean())
+                else:
+                    new_accuracy = new_result.accuracy
 
-                if new_accuracy <= current_accuracy:
+                logger.info(f"ML retrain [{symbol}]: new_val={new_accuracy:.4f}, current={current_accuracy:.4f}")
+
+                # Require 5% relative improvement
+                if new_accuracy < current_accuracy * 1.05:
                     logger.info(f"ML retrain [{symbol}]: new model not better — keeping existing")
                     msg = (f"ML Retrain [{symbol}]: {new_accuracy:.1%} did NOT beat "
                            f"{current_accuracy:.1%} — keeping existing")

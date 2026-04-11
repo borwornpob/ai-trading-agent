@@ -10,6 +10,7 @@ import redis.asyncio as redis
 from loguru import logger
 
 from app.config import settings
+from app.constants import DEFAULT_PORTFOLIO_MAX_LOSS, MIN_TTL_SECONDS
 
 # Market hours reset time (UTC) per symbol type
 # Forex/metals reset at 17:00 EST = 22:00 UTC (21:00 during DST)
@@ -63,6 +64,19 @@ class CircuitBreaker:
         daily_pnl = await self.get_daily_pnl()
         max_loss = balance * settings.max_daily_loss
         triggered = daily_pnl <= -max_loss
+
+        # Early warning at 80% of daily loss limit (once per day)
+        if not triggered and daily_pnl <= -(max_loss * 0.8):
+            warn_key = f"circuit:drawdown_warned:{self.symbol}"
+            already_warned = await self.redis.get(warn_key)
+            if not already_warned:
+                ttl = self._seconds_until_reset(self.symbol)
+                await self.redis.set(warn_key, "1", ex=ttl)
+                logger.warning(
+                    f"Drawdown warning [{self.symbol}]: daily_pnl={daily_pnl:.2f} "
+                    f"({abs(daily_pnl / max_loss) * 100:.0f}% of limit)"
+                )
+
         if triggered:
             # Record trigger time for cooldown
             await self.redis.set(self.triggered_key, datetime.now(timezone.utc).isoformat(), ex=86400)
@@ -104,7 +118,7 @@ class CircuitBreaker:
         return sum(float(v) for v in values if v)
 
     @staticmethod
-    async def is_global_triggered(redis_client, symbols: list[str], balance: float, max_portfolio_loss: float = 0.10) -> bool:
+    async def is_global_triggered(redis_client, symbols: list[str], balance: float, max_portfolio_loss: float = DEFAULT_PORTFOLIO_MAX_LOSS) -> bool:
         """Check if total daily loss across all symbols exceeds portfolio limit."""
         total_pnl = await CircuitBreaker.get_global_daily_pnl(redis_client, symbols)
         max_loss = balance * max_portfolio_loss
@@ -121,4 +135,4 @@ class CircuitBreaker:
         reset_time = now.replace(hour=reset_hour, minute=0, second=0, microsecond=0)
         if now >= reset_time:
             reset_time += timedelta(days=1)
-        return max(int((reset_time - now).total_seconds()), 60)
+        return max(int((reset_time - now).total_seconds()), MIN_TTL_SECONDS)

@@ -13,7 +13,8 @@ from app.ai.client import AIClient
 from app.ai.news_sentiment import NewsSentimentAnalyzer
 from app.ai.strategy_optimizer import StrategyOptimizer
 from app.notifications.telegram import TelegramNotifier
-from app.api.routes import ai_insights, analytics, backtest, bot, data, history, market_data, ml, macro, positions, strategy
+from app.api.routes import ai_insights, analytics, backtest, bot, data, history, market_data, metrics as metrics_routes, ml, macro, positions, strategy
+from app.auth import router as auth_router
 from app.data.collector import HistoricalDataCollector
 from app.data.macro import MacroDataService
 from app.data.macro_events import MacroEventCalendar
@@ -28,6 +29,9 @@ from app.mt5.connector import MT5BridgeConnector
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    from app.logging_config import configure_logging
+    configure_logging()
+
     logger.info("Starting Trading Bot (multi-symbol)...")
 
     # Initialize shared components
@@ -86,8 +90,20 @@ async def lifespan(app: FastAPI):
     app.state.redis = redis_client
     app.state.ai_client = ai_client
 
+    # Initialize metrics
+    from app.metrics import Metrics, set_metrics
+    metrics = Metrics(redis_client)
+    set_metrics(metrics)
+    app.state.metrics = metrics
+
+    # Initialize health monitor
+    from app.bot.health_monitor import HealthMonitor
+    health_monitor = HealthMonitor(connector, manager, notifier)
+    app.state.health_monitor = health_monitor
+
     # Start scheduler
     scheduler = BotScheduler(manager)
+    scheduler.set_health_monitor(health_monitor)
     scheduler.start()
     for engine in manager.engines.values():
         engine._scheduler = scheduler
@@ -130,6 +146,7 @@ app.add_middleware(
 )
 
 # Routes
+app.include_router(auth_router)
 app.include_router(bot.router)
 app.include_router(positions.router)
 app.include_router(history.router)
@@ -141,6 +158,7 @@ app.include_router(data.router)
 app.include_router(ml.router)
 app.include_router(macro.router)
 app.include_router(analytics.router)
+app.include_router(metrics_routes.router)
 app.include_router(ws_router)
 
 

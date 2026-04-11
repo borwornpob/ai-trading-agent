@@ -61,3 +61,8 @@ class TelegramNotifier:
     async def send_error_alert(self, error: str):
         text = f"⚠️ <b>Error</b>\n{error[:500]}"
         await self._send(text)
+
+    async def send_health_alert(self, status: str, details: str):
+        icon = "✅" if status == "recovered" else "🚨"
+        text = f"{icon} <b>Health: {status.upper()}</b>\n{details}"
+        await self._send(text)

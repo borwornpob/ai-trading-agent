@@ -5,6 +5,31 @@ const api = axios.create({
   timeout: 10000,
 });
 
+// Auth interceptor: inject JWT token from localStorage
+api.interceptors.request.use((config) => {
+  if (typeof window !== "undefined") {
+    const token = localStorage.getItem("access_token");
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
+  }
+  return config;
+});
+
+// Auth interceptor: redirect to login on 401
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response?.status === 401 && typeof window !== "undefined") {
+      localStorage.removeItem("access_token");
+      if (window.location.pathname !== "/login") {
+        window.location.href = "/login";
+      }
+    }
+    return Promise.reject(error);
+  },
+);
+
 // Bot
 export const getBotStatus = (symbol?: string) =>
   api.get("/api/bot/status", { params: symbol ? { symbol } : {} });

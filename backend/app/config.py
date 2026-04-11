@@ -51,10 +51,29 @@ SYMBOL_PROFILES: dict[str, dict] = {
 }
 
 
+# Session profiles — SL/TP multiplier overrides by trading session
+SESSION_PROFILES = {
+    "asian":   {"hours": (0, 8),   "sl_atr_mult": 1.2, "tp_atr_mult": 1.5, "confidence_boost": 0.05},
+    "london":  {"hours": (8, 13),  "sl_atr_mult": 1.5, "tp_atr_mult": 2.0, "confidence_boost": 0.0},
+    "overlap": {"hours": (13, 16), "sl_atr_mult": 1.8, "tp_atr_mult": 2.5, "confidence_boost": -0.05},
+    "ny":      {"hours": (16, 21), "sl_atr_mult": 1.5, "tp_atr_mult": 2.0, "confidence_boost": 0.0},
+    "off":     {"hours": (21, 24), "sl_atr_mult": 1.0, "tp_atr_mult": 1.2, "confidence_boost": 0.10},
+}
+
+
+def get_current_session(utc_hour: int) -> dict:
+    """Return session profile for the given UTC hour."""
+    for name, profile in SESSION_PROFILES.items():
+        start, end = profile["hours"]
+        if start <= utc_hour < end:
+            return {**profile, "name": name}
+    return {**SESSION_PROFILES["off"], "name": "off"}
+
+
 class Settings(BaseSettings):
     # MT5 Bridge
     mt5_bridge_url: str = "http://localhost:8001"
-    mt5_bridge_api_key: str = "changeme"
+    mt5_bridge_api_key: str = ""
 
     # Database
     database_url: str = "postgresql+asyncpg://goldbot:goldbot_dev@localhost:5432/goldbot"
@@ -89,11 +108,18 @@ class Settings(BaseSettings):
     paper_trade: bool = False
 
     # Position management
-    max_position_duration_hours: float = 0  # 0=disabled, e.g. 4.0 = auto-close after 4h
+    max_position_duration_hours: float = 0  # 0=disabled, e.g. 8.0 = auto-close after 8h
     partial_tp_atr_mult: float = 1.0  # partial TP trigger at ATR * this multiplier
+    breakeven_atr_mult: float = 0.5   # move SL to breakeven after profit > this * ATR
+    enable_scale_in: bool = False     # enable momentum add-on positions
+    max_scale_in_count: int = 1       # max add-on entries per position
+    enable_partial_tp: bool = False   # enable close-and-reopen partial TP
 
     # Portfolio risk
     max_portfolio_leverage: float = 3.0  # block trades when total leverage exceeds this
+
+    # Session-aware trading
+    use_session_profiles: bool = False  # adjust SL/TP per trading session
 
     # Notifications
     telegram_bot_token: str = ""
@@ -107,10 +133,28 @@ class Settings(BaseSettings):
     ml_confidence_threshold: float = 0.5
     ml_confidence_dynamic: bool = True   # Phase E: ATR-based dynamic threshold
     ml_adx_regime_filter: bool = True    # Phase D: suppress trades in low-ADX market
-    use_mtf_filter: bool = True          # Phase G: H1 trend confirmation
+    use_mtf_filter: bool = True          # Phase G: multi-timeframe trend confirmation
+    mtf_timeframes: str = "H4,D1"       # timeframes for MTF consensus (comma-separated)
+
+    # Strategy ensemble
+    ensemble_strategies: str = ""        # e.g. "ema_crossover:0.3,breakout:0.3,mean_reversion:0.2,rsi_filter:0.2"
+
+    # ML auto-rollback
+    ml_auto_rollback: bool = True
+    ml_rollback_accuracy_floor: float = 0.30  # rollback if accuracy drops below this
+    ml_rollback_min_predictions: int = 50     # minimum predictions before rollback check
+
+    # Logging
+    log_format: str = "text"  # "json" for production, "text" for development
+    log_dir: str = "logs"
+
+    # Authentication (single-user JWT)
+    auth_username: str = "admin"
+    auth_password_hash: str = ""  # bcrypt hash; empty = auth disabled
+    jwt_expire_hours: int = 24
 
     # API
-    secret_key: str = "changeme"
+    secret_key: str = ""
     cors_origins: str = "http://localhost:3000"
 
     @property
@@ -120,6 +164,12 @@ class Settings(BaseSettings):
     @property
     def cors_origin_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",")]
+
+    # DB connection pool
+    db_pool_size: int = 5
+    db_max_overflow: int = 10
+    db_pool_timeout: int = 30
+    db_pool_recycle: int = 1800
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 

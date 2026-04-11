@@ -15,6 +15,15 @@ from app.ml.features import FEATURE_COLUMNS, build_features
 from app.strategy.base import BaseStrategy
 from app.strategy.indicators import atr
 from app.config import settings
+from app.constants import (
+    ADX_RANGING_THRESHOLD,
+    ATR_PERCENTILE_LOW,
+    ML_HIGH_VOL_THRESHOLD_BOOST,
+    ML_LOW_VOL_THRESHOLD_BOOST,
+    RANGING_CONFIDENCE_FACTOR,
+    HIGH_VOL_THRESHOLD,
+    LOW_VOL_THRESHOLD,
+)
 
 
 class MLStrategy(BaseStrategy):
@@ -124,17 +133,17 @@ class MLStrategy(BaseStrategy):
                 adx_val = features.loc[row_idx, "adx_14"] if "adx_14" in features.columns else None
                 atr_pct_val = features.loc[row_idx, "atr_percentile"] if "atr_percentile" in features.columns else None
                 if adx_val is not None and atr_pct_val is not None:
-                    if adx_val < 20 and atr_pct_val < 0.4:
-                        confidence *= 0.7  # reduce confidence in ranging/low-vol markets
+                    if adx_val < ADX_RANGING_THRESHOLD and atr_pct_val < ATR_PERCENTILE_LOW:
+                        confidence *= RANGING_CONFIDENCE_FACTOR
 
             # Phase E: Dynamic confidence threshold based on ATR volatility
             effective_threshold = self._confidence_threshold
             if settings.ml_confidence_dynamic and "atr_pct" in features.columns:
                 atr_pct = features.loc[row_idx, "atr_pct"]
-                if atr_pct > 0.5:    # high volatility (> 0.5% per bar)
-                    effective_threshold = self._confidence_threshold + 0.10
-                elif atr_pct < 0.2:  # low volatility / sideways
-                    effective_threshold = self._confidence_threshold + 0.15
+                if atr_pct > HIGH_VOL_THRESHOLD:
+                    effective_threshold = self._confidence_threshold + ML_HIGH_VOL_THRESHOLD_BOOST
+                elif atr_pct < LOW_VOL_THRESHOLD:
+                    effective_threshold = self._confidence_threshold + ML_LOW_VOL_THRESHOLD_BOOST
 
             if confidence >= effective_threshold and signal != 0:
                 df.loc[row_idx, "signal"] = signal

@@ -34,22 +34,41 @@ class MT5BridgeConnector:
             self._client = None
 
     async def _request(self, method: str, path: str, **kwargs) -> dict[str, Any]:
+        import time
         client = await self._get_client()
+        start = time.monotonic()
         for attempt in range(self.max_retries + 1):
             try:
                 response = await getattr(client, method)(path, **kwargs)
                 response.raise_for_status()
-                return response.json()
+                result = response.json()
+                await self._record_timing(path, time.monotonic() - start)
+                return result
             except (httpx.TimeoutException, httpx.ConnectError) as e:
                 if attempt < self.max_retries:
                     logger.warning(f"MT5 Bridge {method.upper()} {path} retry {attempt + 1}: {e}")
                     await asyncio.sleep(1)
                 else:
                     logger.error(f"MT5 Bridge {method.upper()} {path} failed after {self.max_retries + 1} attempts: {e}")
+                    await self._record_timing(path, time.monotonic() - start, error=True)
                     return {"success": False, "data": None, "error": str(e)}
             except httpx.HTTPStatusError as e:
                 logger.error(f"MT5 Bridge {method.upper()} {path} HTTP error: {e.response.status_code}")
+                await self._record_timing(path, time.monotonic() - start, error=True)
                 return {"success": False, "data": None, "error": str(e)}
+
+    async def _record_timing(self, path: str, duration: float, error: bool = False):
+        """Record request timing to metrics (if available)."""
+        try:
+            from app.metrics import get_metrics
+            metrics = get_metrics()
+            if metrics:
+                name = f"mt5_bridge{path.replace('/', '_')}"
+                await metrics.record_timing(name, round(duration * 1000, 1))
+                if error:
+                    await metrics.increment_counter(f"mt5_bridge_errors")
+        except Exception:
+            pass
 
     async def _request_fast(self, method: str, path: str, **kwargs) -> dict[str, Any]:
         """Single attempt with short timeout — for ephemeral data like ticks."""
@@ -77,8 +96,11 @@ class MT5BridgeConnector:
         return await self._request("get", "/positions")
 
     async def place_order(
-        self, symbol: str, order_type: str, lot: float, sl: float, tp: float, comment: str = "", magic: int = 234000
+        self, symbol: str, order_type: str, lot: float, sl: float, tp: float, comment: str = "", magic: int | None = None
     ) -> dict:
+        from app.constants import MT5_MAGIC_NUMBER
+        if magic is None:
+            magic = MT5_MAGIC_NUMBER
         return await self._request("post", "/order", json={
             "symbol": symbol,
             "type": order_type,

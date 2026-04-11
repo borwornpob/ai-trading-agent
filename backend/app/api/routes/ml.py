@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 
 import joblib
 from fastapi import APIRouter, HTTPException, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import desc, select
 
 from app.config import settings
@@ -53,10 +53,10 @@ class TrainRequest(BaseModel):
     timeframe: str = "M15"
     from_date: str | None = None
     to_date: str | None = None
-    forward_bars: int = 10
-    tp_pips: float = 5.0
-    sl_pips: float = 5.0
-    test_size: float = 0.2
+    forward_bars: int = Field(10, ge=1, le=50)
+    tp_pips: float = Field(5.0, ge=0.1, le=100.0)
+    sl_pips: float = Field(5.0, ge=0.1, le=100.0)
+    test_size: float = Field(0.2, ge=0.05, le=0.5)
     use_walk_forward: bool = False
 
 
@@ -242,3 +242,91 @@ async def predict_now(symbol: str = Query("GOLD")):
         "symbol": symbol,
         "timeframe": settings.timeframe,
     }
+
+
+@router.get("/drift")
+async def get_drift_report(symbol: str = Query("GOLD")):
+    """Get feature and prediction drift report for the active model."""
+    if _db_session is None:
+        raise HTTPException(status_code=503, detail="ML dependencies not initialized")
+
+    from app.db.models import MLModelLog, MLPredictionLog
+    from app.ml.drift import check_drift
+
+    # Get active model stats
+    result = await _db_session.execute(
+        select(MLModelLog)
+        .where(MLModelLog.is_active == True, MLModelLog.model_name.like(f"lightgbm_{symbol.lower()}%"))
+        .limit(1)
+    )
+    model_log = result.scalar_one_or_none()
+    if not model_log or not model_log.metrics:
+        return {"error": "No active model found"}
+
+    metrics = json.loads(model_log.metrics)
+    training_stats = metrics.get("feature_stats")
+    training_label_dist = metrics.get("label_distribution")
+
+    # Get recent predictions
+    pred_result = await _db_session.execute(
+        select(MLPredictionLog)
+        .where(MLPredictionLog.symbol == symbol)
+        .order_by(desc(MLPredictionLog.created_at))
+        .limit(200)
+    )
+    predictions = pred_result.scalars().all()
+    recent_signals = [p.predicted_signal for p in predictions]
+
+    report = check_drift(
+        training_stats=training_stats,
+        training_label_dist=training_label_dist,
+        recent_predictions=recent_signals if recent_signals else None,
+    )
+    return report.to_dict()
+
+
+@router.get("/calibration")
+async def get_calibration(symbol: str = Query("GOLD")):
+    """Get confidence calibration — predicted vs actual win rate per bucket."""
+    if _db_session is None:
+        raise HTTPException(status_code=503, detail="ML dependencies not initialized")
+
+    from app.db.models import MLPredictionLog
+
+    result = await _db_session.execute(
+        select(MLPredictionLog)
+        .where(
+            MLPredictionLog.symbol == symbol,
+            MLPredictionLog.was_correct.isnot(None),
+        )
+        .order_by(desc(MLPredictionLog.created_at))
+        .limit(1000)
+    )
+    predictions = result.scalars().all()
+
+    if len(predictions) < 20:
+        return {"error": f"Insufficient data ({len(predictions)} predictions, need 20+)"}
+
+    # Bucket by confidence
+    buckets = {}
+    for p in predictions:
+        bucket = int(p.confidence * 10) * 10  # 50, 60, 70, 80, 90
+        bucket = max(50, min(90, bucket))
+        key = f"{bucket}-{bucket + 10}%"
+        if key not in buckets:
+            buckets[key] = {"correct": 0, "total": 0, "predicted_confidence": bucket / 100 + 0.05}
+        buckets[key]["total"] += 1
+        if p.was_correct:
+            buckets[key]["correct"] += 1
+
+    calibration = {}
+    for key, data in sorted(buckets.items()):
+        actual_wr = data["correct"] / data["total"] if data["total"] > 0 else 0
+        calibration[key] = {
+            "predicted_confidence": round(data["predicted_confidence"], 2),
+            "actual_win_rate": round(actual_wr, 4),
+            "count": data["total"],
+            "well_calibrated": abs(data["predicted_confidence"] - actual_wr) < 0.10,
+        }
+
+    return {"calibration": calibration, "total_predictions": len(predictions)}

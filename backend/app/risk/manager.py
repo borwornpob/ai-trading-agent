@@ -5,6 +5,23 @@ Risk Manager — lot sizing, SL/TP calculation, trade permission checks.
 from dataclasses import dataclass
 from loguru import logger
 
+from app.constants import (
+    DEFAULT_COMMISSION_PCT,
+    DEFAULT_SLIPPAGE_PIPS,
+    HIGH_VOL_LOT_FACTOR,
+    HIGH_VOL_THRESHOLD,
+    KELLY_FRACTION,
+    KELLY_MAX_RISK_MULT,
+    KELLY_MIN_RISK,
+    LOW_VOL_LOT_FACTOR,
+    LOW_VOL_THRESHOLD,
+    MIN_LOT,
+    STREAK_2_FACTOR,
+    STREAK_3_FACTOR,
+    AI_MAX_THRESHOLD,
+    AI_WORST_HOUR_THRESHOLD_BOOST,
+)
+
 
 @dataclass
 class SLTPResult:
@@ -39,10 +56,12 @@ class RiskManager:
 
     def calculate_lot_size(
         self, balance: float, sl_pips: float, pip_value: float | None = None,
-        atr_pct: float | None = None, slippage_pips: float = 2.0, commission_pct: float = 0.002,
+        atr_pct: float | None = None,
+        slippage_pips: float = DEFAULT_SLIPPAGE_PIPS,
+        commission_pct: float = DEFAULT_COMMISSION_PCT,
     ) -> float:
         if sl_pips <= 0:
-            return 0.01
+            return MIN_LOT
         pv = pip_value if pip_value is not None else self.pip_value
 
         # Account for slippage in effective SL distance
@@ -54,13 +73,13 @@ class RiskManager:
 
         # Volatility adjustment
         if atr_pct is not None:
-            if atr_pct > 0.5:    # high volatility
-                lot *= 0.7
-            elif atr_pct < 0.2:  # low volatility
-                lot *= 1.2
+            if atr_pct > HIGH_VOL_THRESHOLD:
+                lot *= HIGH_VOL_LOT_FACTOR
+            elif atr_pct < LOW_VOL_THRESHOLD:
+                lot *= LOW_VOL_LOT_FACTOR
 
         lot = round(min(lot, self.max_lot), 2)
-        return max(lot, 0.01)
+        return max(lot, MIN_LOT)
 
     def calculate_kelly_size(
         self, balance: float, sl_pips: float,
@@ -77,24 +96,24 @@ class RiskManager:
         q = 1 - win_rate
         kelly = (win_rate * b - q) / b
 
-        # Fractional Kelly (25%) for safety
-        kelly = max(kelly * 0.25, 0.005)  # min 0.5% risk
-        kelly = min(kelly, self.max_risk_per_trade * 2)  # cap at 2x max risk
+        # Fractional Kelly for safety
+        kelly = max(kelly * KELLY_FRACTION, KELLY_MIN_RISK)
+        kelly = min(kelly, self.max_risk_per_trade * KELLY_MAX_RISK_MULT)
 
         pv = pip_value if pip_value is not None else self.pip_value
         if sl_pips <= 0:
-            return 0.01
+            return MIN_LOT
         lot = (balance * kelly) / (sl_pips * pv * 100)
         lot = round(min(lot, self.max_lot), 2)
-        return max(lot, 0.01)
+        return max(lot, MIN_LOT)
 
     def adjust_for_streak(self, base_lot: float, consecutive_losses: int, consecutive_wins: int) -> float:
         """Reduce lot after consecutive losses, restore after wins."""
         if consecutive_losses >= 3:
-            return round(base_lot * 0.5, 2)  # halve after 3 losses
+            return round(base_lot * STREAK_3_FACTOR, 2)
         elif consecutive_losses >= 2:
-            return round(base_lot * 0.75, 2)  # 75% after 2 losses
-        return max(base_lot, 0.01)
+            return round(base_lot * STREAK_2_FACTOR, 2)
+        return max(base_lot, MIN_LOT)
 
     def calculate_sl_tp(
         self, entry_price: float, signal: int, atr: float,
@@ -138,7 +157,7 @@ class RiskManager:
             current_hour = datetime.now(timezone.utc).hour
             worst_hours = trade_patterns.get("worst_hours", [])
             if current_hour in worst_hours:
-                effective_threshold = min(effective_threshold + 0.15, 0.95)
+                effective_threshold = min(effective_threshold + AI_WORST_HOUR_THRESHOLD_BOOST, AI_MAX_THRESHOLD)
 
         # AI sentiment filter (optional)
         if self.use_ai_filter and ai_sentiment and signal != 0:

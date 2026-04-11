@@ -18,7 +18,9 @@ load_dotenv()
 MT5_LOGIN = int(os.getenv("MT5_LOGIN", "0"))
 MT5_PASSWORD = os.getenv("MT5_PASSWORD", "")
 MT5_SERVER = os.getenv("MT5_SERVER", "")
-BRIDGE_API_KEY = os.getenv("BRIDGE_API_KEY", "changeme")
+BRIDGE_API_KEY = os.getenv("BRIDGE_API_KEY", "")
+if not BRIDGE_API_KEY:
+    logger.warning("BRIDGE_API_KEY not set — bridge will reject all requests until configured")
 
 app = FastAPI(title="MT5 Bridge", version="1.0.0")
 

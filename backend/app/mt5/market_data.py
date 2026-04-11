@@ -70,26 +70,7 @@ class MarketDataService:
         df = df.assign(time=pd.to_datetime(df["time"])).set_index("time")
 
         if validate and not df.empty:
-            # Check for duplicate timestamps
-            if df.index.duplicated().any():
-                dup_count = df.index.duplicated().sum()
-                logger.warning(f"Duplicate candles in {symbol} {timeframe}: {dup_count} removed")
-                df = df[~df.index.duplicated(keep="last")]
-
-            # Check for gaps (> 2x expected interval)
-            if len(df) >= 2:
-                intervals = df.index.to_series().diff().dropna()
-                median_interval = intervals.median()
-                if median_interval and median_interval.total_seconds() > 0:
-                    gaps = intervals[intervals > median_interval * 2.5]
-                    if len(gaps) > 0:
-                        logger.debug(f"OHLCV gaps in {symbol} {timeframe}: {len(gaps)} gaps detected (may be market close)")
-
-            # Check for zero-volume bars (possible bad data)
-            if "tick_volume" in df.columns:
-                zero_vol = (df["tick_volume"] == 0).sum()
-                if zero_vol > len(df) * 0.1:
-                    logger.warning(f"High zero-volume bars in {symbol} {timeframe}: {zero_vol}/{len(df)}")
+            df = self._validate_ohlcv(df, symbol, timeframe)
 
         return df
 
@@ -102,6 +83,40 @@ class MarketDataService:
 
         df = pd.DataFrame(result["data"])
         df = df.assign(time=pd.to_datetime(df["time"])).set_index("time")
+
+        if not df.empty:
+            df = self._validate_ohlcv(df, symbol, timeframe)
+
+        return df
+
+    def _validate_ohlcv(self, df: pd.DataFrame, symbol: str, timeframe: str) -> pd.DataFrame:
+        """Validate OHLCV data: remove duplicates, detect gaps, check monotonicity."""
+        # Ensure monotonic index (sort if out of order)
+        if not df.index.is_monotonic_increasing:
+            logger.warning(f"Out-of-order timestamps in {symbol} {timeframe} — sorting")
+            df = df.sort_index()
+
+        # Remove duplicate timestamps
+        if df.index.duplicated().any():
+            dup_count = df.index.duplicated().sum()
+            logger.warning(f"Duplicate candles in {symbol} {timeframe}: {dup_count} removed")
+            df = df[~df.index.duplicated(keep="last")]
+
+        # Gap detection (> 2.5x expected interval)
+        if len(df) >= 2:
+            intervals = df.index.to_series().diff().dropna()
+            median_interval = intervals.median()
+            if median_interval and median_interval.total_seconds() > 0:
+                gaps = intervals[intervals > median_interval * 2.5]
+                if len(gaps) > 0:
+                    logger.debug(f"OHLCV gaps in {symbol} {timeframe}: {len(gaps)} gaps detected (may be market close)")
+
+        # Zero-volume bar check
+        if "tick_volume" in df.columns:
+            zero_vol = (df["tick_volume"] == 0).sum()
+            if zero_vol > len(df) * 0.1:
+                logger.warning(f"High zero-volume bars in {symbol} {timeframe}: {zero_vol}/{len(df)}")
+
         return df
 
     async def stream_ticks(self, symbol: str, callback: Callable, interval: float = 1.0):

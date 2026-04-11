@@ -37,10 +37,13 @@ FEATURE_COLUMNS = [
     "volume_sma_ratio",
     # ADX regime
     "adx_14", "adx_di_plus", "adx_di_minus",
+    # Sentiment (populated if sentiment_df provided)
+    "sent_score_mean", "sent_confidence_mean", "sent_bullish_ratio",
+    "sent_bearish_ratio", "sent_count", "sent_momentum_3d",
 ]
 
 
-def build_features(df: pd.DataFrame, macro_df: pd.DataFrame | None = None) -> pd.DataFrame:
+def build_features(df: pd.DataFrame, macro_df: pd.DataFrame | None = None, sentiment_df: pd.DataFrame | None = None) -> pd.DataFrame:
     """
     Build ML features from OHLCV DataFrame.
     Input df must have columns: open, high, low, close and optionally tick_volume.
@@ -140,6 +143,10 @@ def build_features(df: pd.DataFrame, macro_df: pd.DataFrame | None = None) -> pd
     if macro_df is not None and not macro_df.empty:
         out = _merge_macro_features(out, macro_df)
 
+    # Merge sentiment data if available
+    if sentiment_df is not None and not sentiment_df.empty:
+        out = _merge_sentiment_features(out, sentiment_df)
+
     return out
 
 
@@ -215,5 +222,19 @@ def _merge_macro_features(df: pd.DataFrame, macro_df: pd.DataFrame) -> pd.DataFr
         mapped = df_date.map(macro_df[col].reindex(macro_df.index).to_dict())
         df[f"macro_{col}"] = pd.to_numeric(mapped, errors="coerce")
         df[f"macro_{col}"] = df[f"macro_{col}"].ffill()
+
+    return df
+
+
+def _merge_sentiment_features(df: pd.DataFrame, sentiment_df: pd.DataFrame) -> pd.DataFrame:
+    """Merge daily sentiment aggregates into OHLCV features with forward-fill."""
+    sentiment_df = sentiment_df.copy()
+    sentiment_df.index = pd.to_datetime(sentiment_df.index)
+    df_date = df.index.normalize()
+
+    for col in sentiment_df.columns:
+        mapped = df_date.map(sentiment_df[col].to_dict())
+        df[col] = pd.to_numeric(mapped, errors="coerce")
+        df[col] = df[col].ffill()
 
     return df

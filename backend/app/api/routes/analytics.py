@@ -180,3 +180,76 @@ async def get_performance_analytics(
         "max_slippage": round(max_slippage, 4),
         "slippage_trades": len(slippage_values),
     }
+
+
+@router.get("/slippage")
+async def get_slippage_analysis(
+    symbol: str | None = None,
+    days: int = Query(30, ge=1, le=365),
+    db: AsyncSession = Depends(get_db),
+):
+    """Detailed slippage analysis: by hour, by strategy, total cost."""
+    cutoff = datetime.utcnow() - timedelta(days=days)
+    query = select(Trade).where(
+        Trade.open_time >= cutoff,
+        Trade.expected_price.isnot(None),
+        Trade.open_price.isnot(None),
+    )
+    if symbol:
+        query = query.where(Trade.symbol == symbol)
+
+    result = await db.execute(query)
+    trades = result.scalars().all()
+
+    if not trades:
+        return {"total_trades": 0, "slippage_data": []}
+
+    slippage_data = []
+    by_hour: dict[int, list[float]] = {}
+    by_strategy: dict[str, list[float]] = {}
+    total_cost = 0.0
+
+    for t in trades:
+        if t.expected_price and t.open_price:
+            if t.type == "BUY":
+                slip = t.open_price - t.expected_price
+            else:
+                slip = t.expected_price - t.open_price
+
+            slippage_data.append(slip)
+
+            # By hour
+            hour = t.open_time.hour if t.open_time else 0
+            by_hour.setdefault(hour, []).append(slip)
+
+            # By strategy
+            strategy = t.strategy_name or "unknown"
+            by_strategy.setdefault(strategy, []).append(slip)
+
+            # Cost estimate (slip * lot * contract_size)
+            from app.config import SYMBOL_PROFILES
+            contract_size = SYMBOL_PROFILES.get(t.symbol, {}).get("contract_size", 100)
+            total_cost += abs(slip) * (t.lot or 0.1) * contract_size
+
+    if not slippage_data:
+        return {"total_trades": len(trades), "avg_slippage": 0}
+
+    sorted_slips = sorted(slippage_data)
+    n = len(sorted_slips)
+
+    return {
+        "total_trades": n,
+        "avg_slippage": round(sum(slippage_data) / n, 4),
+        "median_slippage": round(sorted_slips[n // 2], 4),
+        "p95_slippage": round(sorted_slips[int(n * 0.95)] if n >= 20 else sorted_slips[-1], 4),
+        "max_slippage": round(max(slippage_data), 4),
+        "total_cost_usd": round(total_cost, 2),
+        "by_hour": {
+            h: {"avg": round(sum(v) / len(v), 4), "count": len(v)}
+            for h, v in sorted(by_hour.items())
+        },
+        "by_strategy": {
+            s: {"avg": round(sum(v) / len(v), 4), "count": len(v)}
+            for s, v in by_strategy.items()
+        },
+    }

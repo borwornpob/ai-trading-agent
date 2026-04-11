@@ -6,6 +6,7 @@ import asyncio
 
 from loguru import logger
 
+from app.constants import MT5_MAGIC_NUMBER
 from app.mt5.connector import MT5BridgeConnector
 
 # Errors that should NOT be retried (permanent failures)
@@ -18,7 +19,7 @@ class OrderExecutor:
 
     async def place_order(
         self, symbol: str, order_type: str, lot: float, sl: float, tp: float,
-        comment: str = "", magic: int = 234000, max_retries: int = 3,
+        comment: str = "", magic: int = MT5_MAGIC_NUMBER, max_retries: int = 3,
     ) -> dict:
         logger.info(f"Placing order: {order_type} {lot} {symbol} SL={sl} TP={tp}")
 
@@ -27,6 +28,7 @@ class OrderExecutor:
 
             if result.get("success"):
                 logger.info(f"Order placed: ticket={result['data'].get('ticket')} (attempt {attempt + 1})")
+                result["attempt_count"] = attempt + 1
                 return result
 
             error = str(result.get("error", "")).lower()
@@ -34,6 +36,7 @@ class OrderExecutor:
             # Don't retry permanent errors
             if any(e in error for e in _NO_RETRY_ERRORS):
                 logger.error(f"Order failed (permanent): {result.get('error')}")
+                result["attempt_count"] = attempt + 1
                 return result
 
             # Retry transient errors with exponential backoff
@@ -44,6 +47,7 @@ class OrderExecutor:
             else:
                 logger.error(f"Order failed after {max_retries} attempts: {result.get('error')}")
 
+        result["attempt_count"] = max_retries
         return result
 
     async def close_position(self, ticket: int) -> dict:

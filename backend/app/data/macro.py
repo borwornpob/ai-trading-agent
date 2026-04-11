@@ -20,6 +20,8 @@ FRED_SERIES = {
     "CPIAUCSL": "CPI All Urban Consumers",
     "T10Y2Y": "10Y-2Y Treasury Spread",
     "GOLDAMGBD228NLBM": "Gold Fixing Price London (AM)",
+    "DGS10": "10-Year Treasury Constant Maturity Rate",
+    "SP500": "S&P 500 Index",
 }
 
 FRED_BASE_URL = "https://api.stlouisfed.org/fred/series/observations"

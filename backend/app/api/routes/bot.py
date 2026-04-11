@@ -5,7 +5,9 @@ Bot control API routes (multi-symbol).
 from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+
+from app.auth import require_auth
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -50,30 +52,30 @@ class StrategyUpdate(BaseModel):
 class SettingsUpdate(BaseModel):
     symbol: str | None = None
     use_ai_filter: bool | None = None
-    ai_confidence_threshold: float | None = None
+    ai_confidence_threshold: float | None = Field(None, ge=0.0, le=1.0)
     paper_trade: bool | None = None
     timeframe: str | None = None
-    max_risk_per_trade: float | None = None
-    max_daily_loss: float | None = None
-    max_concurrent_trades: int | None = None
-    max_lot: float | None = None
+    max_risk_per_trade: float | None = Field(None, ge=0.001, le=0.10)
+    max_daily_loss: float | None = Field(None, ge=0.01, le=0.20)
+    max_concurrent_trades: int | None = Field(None, ge=1, le=20)
+    max_lot: float | None = Field(None, ge=0.01, le=100.0)
 
 
-@router.post("/start")
+@router.post("/start", dependencies=[Depends(require_auth)])
 async def start_bot(symbol: str | None = Query(None)):
     mgr = get_manager()
     await mgr.start(symbol)
     return {"status": "started", "symbol": symbol or "all"}
 
 
-@router.post("/stop")
+@router.post("/stop", dependencies=[Depends(require_auth)])
 async def stop_bot(symbol: str | None = Query(None)):
     mgr = get_manager()
     await mgr.stop(symbol)
     return {"status": "stopped", "symbol": symbol or "all"}
 
 
-@router.post("/emergency-stop")
+@router.post("/emergency-stop", dependencies=[Depends(require_auth)])
 async def emergency_stop(symbol: str | None = Query(None)):
     mgr = get_manager()
     result = await mgr.emergency_stop(symbol)
@@ -148,7 +150,7 @@ async def get_account():
     }
 
 
-@router.put("/strategy")
+@router.put("/strategy", dependencies=[Depends(require_auth)])
 async def update_strategy(data: StrategyUpdate):
     engine = _get_engine(data.symbol)
     try:
@@ -158,7 +160,7 @@ async def update_strategy(data: StrategyUpdate):
         raise HTTPException(status_code=400, detail=str(e))
 
 
-@router.put("/settings")
+@router.put("/settings", dependencies=[Depends(require_auth)])
 async def update_settings(data: SettingsUpdate):
     if data.symbol:
         engine = _get_engine(data.symbol)

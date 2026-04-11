@@ -33,6 +33,8 @@ class BotEventType(str, enum.Enum):
     CIRCUIT_BREAKER = "CIRCUIT_BREAKER"
     SENTIMENT_CHANGE = "SENTIMENT_CHANGE"
     OPTIMIZATION_RUN = "OPTIMIZATION_RUN"
+    SETTINGS_CHANGED = "SETTINGS_CHANGED"
+    STRATEGY_CHANGED = "STRATEGY_CHANGED"
 
 
 class OHLCVData(Base):
@@ -149,6 +151,43 @@ class BotEvent(Base):
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     event_type: Mapped[BotEventType] = mapped_column(Enum(BotEventType))
     message: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now()
+    )
+
+
+class MLPredictionLog(Base):
+    __tablename__ = "ml_prediction_logs"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    model_id: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
+    symbol: Mapped[str] = mapped_column(String(20))
+    predicted_signal: Mapped[int] = mapped_column(Integer)  # -1, 0, 1
+    confidence: Mapped[float] = mapped_column(Float)
+    actual_outcome: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)  # filled later
+    was_correct: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now()
+    )
+
+
+class OrderAudit(Base):
+    __tablename__ = "order_audits"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    symbol: Mapped[str] = mapped_column(String(20))
+    order_type: Mapped[str] = mapped_column(String(10))  # BUY / SELL
+    requested_lot: Mapped[float] = mapped_column(Float)
+    requested_sl: Mapped[float] = mapped_column(Float)
+    requested_tp: Mapped[float] = mapped_column(Float)
+    expected_price: Mapped[float] = mapped_column(Float)
+    fill_price: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    ticket: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
+    status: Mapped[str] = mapped_column(String(20))  # FILLED / REJECTED / TIMEOUT / ERROR
+    error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    signal_source: Mapped[str] = mapped_column(String(50))  # strategy name
+    attempt_count: Mapped[int] = mapped_column(Integer, default=1)
+    latency_ms: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now()
     )
