@@ -9,6 +9,7 @@ addopts = "--cov=app --cov-report=term-missing"
 [tool.ruff]
 line-length = 120
 target-version = "py312"
+exclude = ["alembic/"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
