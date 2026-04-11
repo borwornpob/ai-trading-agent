@@ -246,15 +246,17 @@ export default function DashboardPage() {
                     : "bg-card text-foreground border-border hover:border-primary/50"
                 }`}
               >
+                <span
+                  className={`size-2 rounded-full shrink-0 ${
+                    symStatus?.state === "RUNNING"
+                      ? isActive ? "bg-green-900" : "bg-green-400"
+                      : isActive ? "bg-primary-foreground/30" : "bg-muted-foreground/30"
+                  }`}
+                />
                 <span>{s.display_name}</span>
                 <span className="font-mono text-[10px] opacity-75">
                   {symTick ? symTick.bid.toFixed(s.price_decimals) : "---"}
                 </span>
-                <span
-                  className={`size-1.5 rounded-full ${
-                    symStatus?.state === "RUNNING" ? "bg-green-400" : "bg-muted-foreground/30"
-                  }`}
-                />
               </button>
             );
           })}
