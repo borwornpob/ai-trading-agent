@@ -1,5 +1,5 @@
 """
-ML Model API routes — training, prediction, and status.
+ML Model API routes — training, prediction, and status (per-symbol).
 """
 
 import asyncio
@@ -8,7 +8,7 @@ import json
 from datetime import datetime, timezone
 
 import joblib
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import desc, select
 
@@ -49,6 +49,7 @@ def set_ml_deps(collector, db_session):
 
 
 class TrainRequest(BaseModel):
+    symbol: str = "GOLD"
     timeframe: str = "M15"
     from_date: str | None = None
     to_date: str | None = None
@@ -64,10 +65,14 @@ async def train_model(req: TrainRequest):
     if _collector is None or _db_session is None:
         raise HTTPException(status_code=503, detail="ML dependencies not initialized")
 
+    symbol = req.symbol
+    model_name = f"lightgbm_{symbol.lower()}"
+    model_path = f"models/{symbol.lower()}_signal.pkl"
+
     # Load data from DB
-    df = await _collector.load_from_db(settings.symbol, req.timeframe, req.from_date, req.to_date)
+    df = await _collector.load_from_db(symbol, req.timeframe, req.from_date, req.to_date)
     if df.empty or len(df) < 500:
-        return {"error": f"Insufficient data: {len(df)} bars (need 500+)"}
+        return {"error": f"Insufficient data for {symbol}: {len(df)} bars (need 500+)"}
 
     # Load macro data from DB
     macro_df = await _load_macro_from_db(_db_session)
@@ -78,7 +83,7 @@ async def train_model(req: TrainRequest):
     # Prepare dataset (with macro features if available)
     X, y = trainer.prepare_dataset(df, req.forward_bars, req.tp_pips, req.sl_pips, macro_df=macro_df)
     if len(X) < 200:
-        return {"error": f"Insufficient labeled samples: {len(X)} (need 200+)"}
+        return {"error": f"Insufficient labeled samples for {symbol}: {len(X)} (need 200+)"}
 
     # Train in thread pool to avoid blocking event loop
     loop = asyncio.get_event_loop()
@@ -88,7 +93,6 @@ async def train_model(req: TrainRequest):
         result = await loop.run_in_executor(None, trainer.train, X, y, req.test_size)
 
     # Save model to file (local) and serialize to bytes (for DB)
-    model_path = settings.ml_model_path
     trainer.save_model(model_path)
     result.model_path = model_path
 
@@ -97,17 +101,19 @@ async def train_model(req: TrainRequest):
     joblib.dump({"model": trainer.model, "features": trainer.feature_columns}, buf)
     model_bytes = buf.getvalue()
 
-    # Save to DB
+    # Save to DB — deactivate old model for this symbol only
     try:
         from app.db.models import MLModelLog
         from sqlalchemy import update
         await _db_session.execute(
-            update(MLModelLog).where(MLModelLog.is_active == True).values(is_active=False)
+            update(MLModelLog)
+            .where(MLModelLog.is_active == True, MLModelLog.model_name == model_name)
+            .values(is_active=False)
         )
 
         split_idx = int(len(X) * (1 - req.test_size))
         log = MLModelLog(
-            model_name="lightgbm_xauusd",
+            model_name=model_name,
             timeframe=req.timeframe,
             train_start=df.index[0].to_pydatetime(),
             train_end=df.index[split_idx].to_pydatetime(),
@@ -125,25 +131,39 @@ async def train_model(req: TrainRequest):
         await _db_session.rollback()
         return {"warning": f"Model trained but DB log failed: {e}", **result.to_dict()}
 
-    return result.to_dict()
+    return {**result.to_dict(), "symbol": symbol}
 
 
 @router.get("/status")
-async def model_status():
+async def model_status(symbol: str = Query("GOLD")):
     if _db_session is None:
         raise HTTPException(status_code=503, detail="Not initialized")
 
     from app.db.models import MLModelLog
+
+    model_prefix = f"lightgbm_{symbol.lower()}"
+
+    # Try symbol-specific model first
     result = await _db_session.execute(
-        select(MLModelLog).where(MLModelLog.is_active == True).limit(1)
+        select(MLModelLog)
+        .where(MLModelLog.is_active == True, MLModelLog.model_name.like(f"{model_prefix}%"))
+        .limit(1)
     )
     log = result.scalar_one_or_none()
 
+    # Fallback to any active model
     if not log:
-        return {"status": "no_model", "message": "No trained model found. Use POST /api/ml/train first."}
+        result = await _db_session.execute(
+            select(MLModelLog).where(MLModelLog.is_active == True).limit(1)
+        )
+        log = result.scalar_one_or_none()
+
+    if not log:
+        return {"status": "no_model", "symbol": symbol, "message": f"No trained model found for {symbol}. Use POST /api/ml/train first."}
 
     return {
         "status": "ready",
+        "symbol": symbol,
         "model_name": log.model_name,
         "timeframe": log.timeframe,
         "train_period": f"{log.train_start.isoformat()} to {log.train_end.isoformat()}",
@@ -156,16 +176,21 @@ async def model_status():
 
 
 @router.post("/predict")
-async def predict_now():
+async def predict_now(symbol: str = Query("GOLD")):
     """Run ML prediction on current market data."""
     if _collector is None or _db_session is None:
         raise HTTPException(status_code=503, detail="Not initialized")
 
-    # Try loading model from file first, then fall back to DB
+    model_prefix = f"lightgbm_{symbol.lower()}"
+
+    # Try loading symbol-specific model from file first
     from pathlib import Path
     model_data = None
+    symbol_path = f"models/{symbol.lower()}_signal.pkl"
 
-    if Path(settings.ml_model_path).exists():
+    if Path(symbol_path).exists():
+        model_data = joblib.load(symbol_path)
+    elif Path(settings.ml_model_path).exists():
         model_data = joblib.load(settings.ml_model_path)
     else:
         # Load from DB
@@ -174,15 +199,25 @@ async def predict_now():
             select(MLModelLog).where(
                 MLModelLog.is_active == True,
                 MLModelLog.model_binary.isnot(None),
+                MLModelLog.model_name.like(f"{model_prefix}%"),
             ).limit(1)
         )
         log = result.scalar_one_or_none()
+        # Fallback to any active model
+        if not log:
+            result = await _db_session.execute(
+                select(MLModelLog).where(
+                    MLModelLog.is_active == True,
+                    MLModelLog.model_binary.isnot(None),
+                ).limit(1)
+            )
+            log = result.scalar_one_or_none()
         if log and log.model_binary:
             buf = io.BytesIO(log.model_binary)
             model_data = joblib.load(buf)
 
     if model_data is None:
-        return {"error": "No trained model found. Train one first."}
+        return {"error": f"No trained model found for {symbol}. Train one first."}
 
     from app.ml.predictor import MLPredictor
     predictor = MLPredictor.__new__(MLPredictor)
@@ -190,9 +225,9 @@ async def predict_now():
     predictor.feature_columns = model_data.get("features", [])
 
     # Get recent OHLCV from DB
-    df = await _collector.load_from_db(settings.symbol, settings.timeframe)
+    df = await _collector.load_from_db(symbol, settings.timeframe)
     if df.empty or len(df) < 200:
-        return {"error": "Insufficient market data"}
+        return {"error": f"Insufficient market data for {symbol}"}
 
     # Use last 300 bars for feature computation
     df_recent = df.tail(300)
@@ -204,6 +239,6 @@ async def predict_now():
         "signal_value": signal,
         "confidence": round(confidence, 4),
         "timestamp": datetime.now(timezone.utc).isoformat(),
-        "symbol": settings.symbol,
+        "symbol": symbol,
         "timeframe": settings.timeframe,
     }

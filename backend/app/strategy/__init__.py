@@ -19,8 +19,12 @@ except ImportError:
     pass  # lightgbm not installed
 
 
-def get_strategy(name: str, params: dict | None = None) -> BaseStrategy:
+def get_strategy(name: str, params: dict | None = None, symbol: str = "GOLD") -> BaseStrategy:
     cls = STRATEGIES.get(name)
     if cls is None:
         raise ValueError(f"Unknown strategy: {name}. Available: {list(STRATEGIES.keys())}")
-    return cls(**(params or {}))
+    kwargs = dict(params or {})
+    # Pass symbol to ML strategy for per-symbol model loading
+    if name == "ml_signal":
+        kwargs.setdefault("symbol", symbol)
+    return cls(**kwargs)

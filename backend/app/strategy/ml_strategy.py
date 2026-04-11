@@ -18,26 +18,29 @@ from app.config import settings
 
 
 class MLStrategy(BaseStrategy):
-    def __init__(self, model_path: str = "models/xauusd_signal.pkl", confidence_threshold: float = 0.5):
+    def __init__(self, model_path: str = "models/xauusd_signal.pkl", confidence_threshold: float = 0.5, symbol: str = "GOLD"):
         self._model_path = model_path
         self._confidence_threshold = confidence_threshold
+        self._symbol = symbol
         self._model = None
         self._feature_columns = FEATURE_COLUMNS
         self._model_loaded = False
 
-        # Try loading from file immediately (works locally)
-        if Path(self._model_path).exists():
+        # Try loading from symbol-specific file first, then fallback
+        symbol_path = f"models/{symbol.lower()}_signal.pkl"
+        load_path = symbol_path if Path(symbol_path).exists() else self._model_path
+        if Path(load_path).exists():
             try:
-                data = joblib.load(self._model_path)
+                data = joblib.load(load_path)
                 self._model = data["model"]
                 self._feature_columns = data.get("features", FEATURE_COLUMNS)
                 self._model_loaded = True
-                logger.info(f"ML model loaded from file: {self._model_path}")
+                logger.info(f"ML model loaded from file: {load_path} (symbol={symbol})")
             except Exception as e:
                 logger.warning(f"Failed to load model from file: {e}")
 
     async def _ensure_model(self):
-        """Load model from DB if not already loaded. Retries on transient errors."""
+        """Load model from DB if not already loaded. Filters by symbol."""
         if self._model_loaded:
             return
 
@@ -46,23 +49,38 @@ class MLStrategy(BaseStrategy):
             from app.db.models import MLModelLog
             from sqlalchemy import select
 
+            model_prefix = f"lightgbm_{self._symbol.lower()}"
+
             async with async_session() as session:
+                # Try symbol-specific model first
                 result = await session.execute(
                     select(MLModelLog).where(
                         MLModelLog.is_active == True,
                         MLModelLog.model_binary.isnot(None),
+                        MLModelLog.model_name.like(f"{model_prefix}%"),
                     ).limit(1)
                 )
                 log = result.scalar_one_or_none()
+
+                # Fallback to any active model if no symbol-specific one
+                if not log:
+                    result = await session.execute(
+                        select(MLModelLog).where(
+                            MLModelLog.is_active == True,
+                            MLModelLog.model_binary.isnot(None),
+                        ).limit(1)
+                    )
+                    log = result.scalar_one_or_none()
+
                 if log and log.model_binary:
                     buf = io.BytesIO(log.model_binary)
                     data = joblib.load(buf)
                     self._model = data["model"]
                     self._feature_columns = data.get("features", FEATURE_COLUMNS)
-                    self._model_loaded = True  # only set on success
-                    logger.info("ML model loaded from DB successfully")
+                    self._model_loaded = True
+                    logger.info(f"ML model loaded from DB: {log.model_name} (symbol={self._symbol})")
                 else:
-                    logger.warning("No trained ML model found in DB — Train a model on the ML page first")
+                    logger.warning(f"No trained ML model found for {self._symbol} — Train a model on the ML page first")
                     self._model_loaded = True  # no model exists, don't keep retrying
         except Exception as e:
             logger.warning(f"Failed to load ML model from DB: {e} — will retry next candle")

@@ -83,7 +83,7 @@ class BotEngine:
         self.circuit_breaker = CircuitBreaker(redis_client, self.symbol)
 
         # Initialize with defaults — can be updated via API
-        self.strategy: BaseStrategy = get_strategy("ema_crossover")
+        self.strategy: BaseStrategy = get_strategy("ema_crossover", symbol=self.symbol)
         self.risk_manager = RiskManager(
             max_risk_per_trade=settings.max_risk_per_trade,
             max_daily_loss=settings.max_daily_loss,
@@ -584,8 +584,8 @@ class BotEngine:
                     await self.executor.modify_position(ticket, sl=round(new_sl, 2))
 
     async def update_strategy(self, name: str, params: dict | None = None):
-        self.strategy = get_strategy(name, params)
-        logger.info(f"Strategy updated: {name} params={params}")
+        self.strategy = get_strategy(name, params, symbol=self.symbol)
+        logger.info(f"Strategy updated [{self.symbol}]: {name} params={params}")
 
     async def update_settings(self, use_ai_filter: bool | None = None, ai_confidence_threshold: float | None = None, paper_trade: bool | None = None, timeframe: str | None = None, max_risk_per_trade: float | None = None, max_daily_loss: float | None = None, max_concurrent_trades: int | None = None, max_lot: float | None = None):
         if use_ai_filter is not None:
