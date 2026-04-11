@@ -1,10 +1,12 @@
 "use client";
 
 import { type LucideIcon } from "lucide-react";
+import { type ReactNode } from "react";
 import { cn } from "@/lib/utils";
 
 interface StatCardProps {
-  icon: LucideIcon;
+  icon?: LucideIcon;
+  iconNode?: ReactNode;
   label: string;
   value: string | number;
   subtitle?: string;
@@ -31,6 +33,7 @@ const iconVariantStyles = {
 
 export function StatCard({
   icon: Icon,
+  iconNode,
   label,
   value,
   subtitle,
@@ -53,7 +56,7 @@ export function StatCard({
             iconVariantStyles[variant]
           )}
         >
-          <Icon className="size-3.5 sm:size-4" />
+          {iconNode ? iconNode : Icon ? <Icon className="size-3.5 sm:size-4" /> : null}
         </div>
         {trend && (
           <span

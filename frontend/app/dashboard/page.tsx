@@ -275,7 +275,16 @@ export default function DashboardPage() {
             {account.accounts.map((acc, i) => (
               <StatCard
                 key={i}
-                icon={Wallet}
+                iconNode={acc.connector === "binance" ? (
+                  <svg viewBox="0 0 24 24" className="size-4" fill="currentColor">
+                    <path d="M12 1.5L6.5 7l2 2L12 5.5 15.5 9l2-2L12 1.5zM3 10.5l2 2 2-2-2-2-2 2zm9 0L8.5 14l2 2L12 14.5 13.5 16l2-2L12 10.5zm9 0l-2 2 2 2 2-2-2-2zM12 18.5L8.5 15l-2 2L12 22.5l5.5-5.5-2-2L12 18.5z"/>
+                  </svg>
+                ) : (
+                  <svg viewBox="0 0 24 24" className="size-4" fill="currentColor">
+                    <path d="M4 4h7v7H4V4zm9 0h7v7h-7V4zM4 13h7v7H4v-7zm9 0h7v7h-7v-7z" opacity="0.3"/>
+                    <path d="M3 3v18h18V3H3zm8 16H5v-6h6v6zm0-8H5V5h6v6zm8 8h-6v-6h6v6zm0-8h-6V5h6v6z"/>
+                  </svg>
+                )}
                 label={acc.connector === "binance" ? "Binance" : "MT5"}
                 value={`$${acc.balance.toLocaleString("en", { minimumFractionDigits: 2 })}${acc.currency === "USDT" ? " USDT" : ""}`}
                 variant={acc.connector === "binance" ? "default" : "gold"}
