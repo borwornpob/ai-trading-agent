@@ -277,7 +277,7 @@ export default function DashboardPage() {
                 key={i}
                 icon={Wallet}
                 label={acc.connector === "binance" ? "Binance" : "MT5"}
-                value={`${acc.currency === "USDT" ? "₮" : "$"}${acc.balance.toLocaleString("en", { minimumFractionDigits: 2 })}`}
+                value={`$${acc.balance.toLocaleString("en", { minimumFractionDigits: 2 })}${acc.currency === "USDT" ? " USDT" : ""}`}
                 variant={acc.connector === "binance" ? "default" : "gold"}
               />
             ))}

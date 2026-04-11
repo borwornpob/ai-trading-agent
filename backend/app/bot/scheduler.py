@@ -169,10 +169,8 @@ class BotScheduler:
         logger.info("Scheduler stopped")
 
     async def _tick_job(self):
-        tasks = []
-        for symbol, engine in self._engines.items():
-            if engine.state.value == "RUNNING":
-                tasks.append(self._fetch_tick(symbol, engine))
+        # Fetch ticks for ALL symbols (even STOPPED) so dashboard shows prices
+        tasks = [self._fetch_tick(sym, eng) for sym, eng in self._engines.items()]
         if tasks:
             await asyncio.gather(*tasks, return_exceptions=True)
 
