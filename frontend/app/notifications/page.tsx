@@ -54,7 +54,7 @@ export default function NotificationsPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader title="Notifications" description="Bot event history and alerts" />
+      <PageHeader title="Notifications" subtitle="Bot event history and alerts" />
 
       <div className="flex flex-wrap gap-3">
         <select
