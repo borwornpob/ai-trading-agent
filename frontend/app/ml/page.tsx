@@ -13,7 +13,7 @@ import { StatCard } from "@/components/ui/stat-card";
 import { trainModel, getModelStatus, mlPredict, getDataStatus, collectData, getSymbols } from "@/lib/api";
 import { SymbolTabs } from "@/components/ui/symbol-tabs";
 
-type SymbolInfo = { symbol: string; display_name: string; state: string };
+type SymbolInfo = { symbol: string; display_name: string; state: string; timeframe?: string };
 
 export default function MLPage() {
   const [symbols, setSymbols] = useState<SymbolInfo[]>([]);
@@ -32,7 +32,7 @@ export default function MLPage() {
   const [collectTimeframe, setCollectTimeframe] = useState("M15");
   const [trainTimeframe, setTrainTimeframe] = useState("M15");
   const [trainFrom, setTrainFrom] = useState("2025-04-01");
-  const [trainTo, setTrainTo] = useState("2025-12-31");
+  const [trainTo, setTrainTo] = useState(new Date().toISOString().split("T")[0]);
   const [forwardBars, setForwardBars] = useState(10);
   const [tpPips, setTpPips] = useState(5.0);
   const [slPips, setSlPips] = useState(5.0);
@@ -60,13 +60,19 @@ export default function MLPage() {
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
-  // Reset results when symbol changes
+  // Reset results and sync timeframe when symbol changes
   useEffect(() => {
     setTrainResult(null);
     setPrediction(null);
     setCollectResult(null);
     setCollectError(null);
-  }, [activeSymbol]);
+    // Sync timeframe from symbol profile
+    const info = symbols.find((s) => s.symbol === activeSymbol);
+    if (info?.timeframe) {
+      setCollectTimeframe(info.timeframe);
+      setTrainTimeframe(info.timeframe);
+    }
+  }, [activeSymbol, symbols]);
 
   const handleCollect = async () => {
     setCollecting(true);
@@ -90,7 +96,13 @@ export default function MLPage() {
       const res = await trainModel({ symbol: activeSymbol, timeframe: trainTimeframe, from_date: trainFrom, to_date: trainTo, forward_bars: forwardBars, tp_pips: tpPips, sl_pips: slPips });
       setTrainResult(res.data);
       await fetchData();
-    } catch (e) { console.error(e); }
+    } catch (e: unknown) {
+      console.error(e);
+      const msg = (e && typeof e === "object" && "response" in e)
+        ? String((e as { response: { data?: { detail?: string } } }).response?.data?.detail || "Training failed")
+        : String((e as Error)?.message || "Training failed — check console");
+      setTrainResult({ error: msg });
+    }
     finally { setTraining(false); }
   };
 

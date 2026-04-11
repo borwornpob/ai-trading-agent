@@ -1,9 +1,8 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
-import { Sidebar, MobileHeader } from "@/components/layout/Sidebar";
-import { TooltipProvider } from "@/components/ui/tooltip";
 import { ThemeProvider } from "@/components/theme-provider";
+import { AppShell } from "@/components/layout/AppShell";
 
 const inter = Inter({
   variable: "--font-sans",
@@ -24,20 +23,14 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className={`${inter.variable} h-full antialiased`} suppressHydrationWarning>
-      <body className="min-h-full flex flex-col lg:flex-row bg-background text-foreground">
+      <body className="min-h-full bg-background text-foreground">
         <ThemeProvider
           attribute="class"
           defaultTheme="light"
           enableSystem
           disableTransitionOnChange
         >
-          <TooltipProvider>
-            <MobileHeader />
-            <Sidebar />
-            <main className="flex-1 overflow-auto">
-              <div className="max-w-[1600px] mx-auto animate-fade-in">{children}</div>
-            </main>
-          </TooltipProvider>
+          <AppShell>{children}</AppShell>
         </ThemeProvider>
       </body>
     </html>
