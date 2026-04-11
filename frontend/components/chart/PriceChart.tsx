@@ -145,8 +145,8 @@ export default function PriceChart({ symbol, timeframe, tick, emaFast = 20, emaS
           // Fetch trades and overlay markers
           try {
             const [tradeRes, posRes] = await Promise.all([
-              getTradeHistory({ days: 7, limit: 100 }).catch(() => null),
-              getPositions().catch(() => null),
+              getTradeHistory({ days: 7, symbol, limit: 100 }).catch(() => null),
+              getPositions(symbol).catch(() => null),
             ]);
 
             const markers: SeriesMarker<Time>[] = [];
