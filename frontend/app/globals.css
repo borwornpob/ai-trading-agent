@@ -4,6 +4,12 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* Hide TradingView watermark from lightweight-charts */
+[class*="apply-overflow-hidden"] a[href*="tradingview"],
+[class*="chart-container"] a[target="_blank"] {
+  display: none !important;
+}
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);

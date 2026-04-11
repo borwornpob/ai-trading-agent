@@ -70,6 +70,17 @@ export default function PriceChart({ symbol, timeframe, tick, emaFast = 20, emaS
       },
     });
 
+    // Remove TradingView watermark logo
+    const container = containerRef.current;
+    if (container) {
+      const observer = new MutationObserver(() => {
+        container.querySelectorAll('a[href*="tradingview"]').forEach((el) => el.remove());
+      });
+      observer.observe(container, { childList: true, subtree: true });
+      // Initial cleanup
+      container.querySelectorAll('a[href*="tradingview"]').forEach((el) => el.remove());
+    }
+
     const series = chart.addSeries(CandlestickSeries, {
       upColor: isDark ? "#4ade80" : "#054d28",
       downColor: "#d03238",
