@@ -17,7 +17,10 @@ import {
   Sun,
   Moon,
   TrendingUp,
+  Bell,
+  LogOut,
 } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 
 const navItems = [
@@ -28,6 +31,7 @@ const navItems = [
   { href: "/insights", label: "AI Insights", icon: Brain },
   { href: "/ml", label: "ML Model", icon: Cpu },
   { href: "/macro", label: "Macro Data", icon: Globe },
+  { href: "/notifications", label: "Notifications", icon: Bell },
 ];
 
 function ThemeToggle() {
@@ -42,6 +46,24 @@ function ThemeToggle() {
       <Sun className="size-4 rotate-0 scale-100 transition-transform dark:-rotate-90 dark:scale-0" />
       <Moon className="absolute size-4 rotate-90 scale-0 transition-transform dark:rotate-0 dark:scale-100" />
       <span className="text-xs">Theme</span>
+    </button>
+  );
+}
+
+function LogoutButton() {
+  const router = useRouter();
+  const handleLogout = () => {
+    localStorage.removeItem("access_token");
+    router.push("/login");
+  };
+  return (
+    <button
+      type="button"
+      onClick={handleLogout}
+      className="flex items-center gap-2 px-3 py-2 rounded-full text-sm font-medium text-muted-foreground hover:text-red-500 hover:bg-sidebar-accent transition-colors w-full"
+    >
+      <LogOut className="size-4" />
+      <span className="text-xs">Logout</span>
     </button>
   );
 }
@@ -100,9 +122,10 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
       <div className="mx-4 h-px bg-sidebar-border" />
 
       {/* Footer */}
-      <div className="p-4 space-y-2">
+      <div className="p-4 space-y-1">
         <ThemeToggle />
-        <p className="px-3 text-xs text-muted-foreground/50 font-medium">v2.0.0</p>
+        <LogoutButton />
+        <p className="px-3 pt-1 text-xs text-muted-foreground/50 font-medium">v2.0.0</p>
       </div>
     </>
   );

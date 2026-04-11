@@ -42,7 +42,8 @@ export default function BacktestPage() {
       if (Array.isArray(res.data) && res.data.length > 0) setHasDbData(true);
     }).catch(() => {});
     getSymbols().then((res) => {
-      if (Array.isArray(res.data) && res.data.length > 0) setAvailableSymbols(res.data);
+      const syms = res.data?.symbols || res.data;
+      if (Array.isArray(syms) && syms.length > 0) setAvailableSymbols(syms);
     }).catch(() => {});
   }, []);
 
