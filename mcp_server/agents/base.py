@@ -118,13 +118,18 @@ async def run_agent_loop(
 
     except Exception as e:
         err_str = str(e)
-        # Handle known SDK parse errors (rate_limit_event etc.)
-        if "rate_limit" in err_str.lower():
-            logger.warning("Rate limited by Claude — response may be partial")
+        # Unwrap TaskGroup/ExceptionGroup to find root cause
+        root_cause = e
+        if hasattr(e, "exceptions"):
+            root_cause = e.exceptions[0] if e.exceptions else e
+            err_str = str(root_cause)
+
+        if "rate_limit" in err_str.lower() or "MessageParseError" in type(root_cause).__name__:
+            logger.warning(f"Rate limited or parse error — response may be partial: {err_str[:100]}")
         else:
-            logger.error(f"Agent loop error: {e}")
+            logger.error(f"Agent loop error: {err_str}")
             return {
-                "response": f"Agent error: {e}",
+                "response": f"Agent error: {err_str}",
                 "tool_calls": tool_calls_made,
                 "turns": turns,
                 "error": err_str,
