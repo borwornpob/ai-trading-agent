@@ -1,6 +1,6 @@
 """Secrets Vault API — encrypted secrets CRUD with audit logging."""
 
-from datetime import UTC, datetime
+from datetime import datetime
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -141,8 +141,8 @@ async def upsert_secret(
         existing.description = req.description
         existing.is_required = req.is_required
         existing.is_deleted = False
-        existing.last_rotated_at = datetime.now(UTC)
-        existing.updated_at = datetime.now(UTC)
+        existing.last_rotated_at = datetime.utcnow()
+        existing.updated_at = datetime.utcnow()
         action = "secret_updated"
     else:
         secret = Secret(
@@ -180,7 +180,7 @@ async def delete_secret(
     """Soft-delete a secret."""
     secret = await _get_secret_or_404(db, key)
     secret.is_deleted = True
-    secret.updated_at = datetime.now(UTC)
+    secret.updated_at = datetime.utcnow()
 
     await log_audit(
         db, "secret_deleted", resource=f"secret:{key}",
@@ -210,10 +210,10 @@ async def test_secret(
     if not tester:
         return {"testable": False, "message": f"No test available for category '{secret.category}'"}
 
-    start = datetime.now(UTC)
+    start = datetime.utcnow()
     try:
         result = await tester(plaintext)
-        latency_ms = int((datetime.now(UTC) - start).total_seconds() * 1000)
+        latency_ms = int((datetime.utcnow() - start).total_seconds() * 1000)
         status = "ok" if result["ok"] else "error"
 
         await log_audit(
@@ -224,7 +224,7 @@ async def test_secret(
         )
         return {"status": status, "message": result["message"], "latency_ms": latency_ms}
     except Exception as e:
-        latency_ms = int((datetime.now(UTC) - start).total_seconds() * 1000)
+        latency_ms = int((datetime.utcnow() - start).total_seconds() * 1000)
         await log_audit(
             db, "secret_tested", resource=f"secret:{key}",
             detail={"status": "error", "error": str(e)},
