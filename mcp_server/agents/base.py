@@ -88,52 +88,67 @@ async def run_agent_loop(
     final_text = ""
     turns = 0
     start_time = time.time()
+    max_retries = 3
 
-    try:
-        async for msg in sdk_query(prompt=user_message, options=options):
-            elapsed = time.time() - start_time
-            if elapsed > timeout:
-                logger.warning(f"Agent timeout after {elapsed:.0f}s")
+    for attempt in range(max_retries):
+        try:
+            async for msg in sdk_query(prompt=user_message, options=options):
+                elapsed = time.time() - start_time
+                if elapsed > timeout:
+                    logger.warning(f"Agent timeout after {elapsed:.0f}s")
+                    break
+
+                msg_type = getattr(msg, "type", "")
+                if msg_type == "assistant":
+                    turns += 1
+                    for block in getattr(msg, "content", []):
+                        block_type = getattr(block, "type", "")
+                        if block_type == "text" and hasattr(block, "text"):
+                            final_text = block.text
+                        elif block_type == "tool_use" and hasattr(block, "name"):
+                            tool_calls_made.append({
+                                "tool": block.name,
+                                "input": getattr(block, "input", {}),
+                            })
+                            logger.info(f"[Agent] Tool: {block.name}")
+
+                elif msg_type == "result":
+                    if hasattr(msg, "result") and msg.result:
+                        final_text = msg.result
+                    turns = getattr(msg, "num_turns", turns)
+                    break
+
+            # If we got a response, don't retry
+            if final_text:
                 break
 
-            msg_type = getattr(msg, "type", "")
-            if msg_type == "assistant":
-                turns += 1
-                for block in getattr(msg, "content", []):
-                    block_type = getattr(block, "type", "")
-                    if block_type == "text" and hasattr(block, "text"):
-                        final_text = block.text
-                    elif block_type == "tool_use" and hasattr(block, "name"):
-                        tool_calls_made.append({
-                            "tool": block.name,
-                            "input": getattr(block, "input", {}),
-                        })
-                        logger.info(f"[Agent] Tool: {block.name}")
+        except Exception as e:
+            err_str = str(e)
+            root_cause = e
+            if hasattr(e, "exceptions"):
+                root_cause = e.exceptions[0] if e.exceptions else e
+                err_str = str(root_cause)
 
-            elif msg_type == "result":
-                if hasattr(msg, "result") and msg.result:
-                    final_text = msg.result
-                turns = getattr(msg, "num_turns", turns)
+            is_transport = "ProcessTransport" in err_str or "not ready for writing" in err_str
+            is_rate_limit = "rate_limit" in err_str.lower() or "MessageParseError" in type(root_cause).__name__
+
+            if is_transport and attempt < max_retries - 1:
+                wait_s = (attempt + 1) * 5
+                logger.warning(f"SDK transport error (attempt {attempt + 1}/{max_retries}), retrying in {wait_s}s...")
+                import asyncio as _aio
+                await _aio.sleep(wait_s)
+                continue
+            elif is_rate_limit:
+                logger.warning(f"Rate limited — response may be partial: {err_str[:100]}")
                 break
-
-    except Exception as e:
-        err_str = str(e)
-        # Unwrap TaskGroup/ExceptionGroup to find root cause
-        root_cause = e
-        if hasattr(e, "exceptions"):
-            root_cause = e.exceptions[0] if e.exceptions else e
-            err_str = str(root_cause)
-
-        if "rate_limit" in err_str.lower() or "MessageParseError" in type(root_cause).__name__:
-            logger.warning(f"Rate limited or parse error — response may be partial: {err_str[:100]}")
-        else:
-            logger.error(f"Agent loop error: {err_str}")
-            return {
-                "response": f"Agent error: {err_str}",
-                "tool_calls": tool_calls_made,
-                "turns": turns,
-                "error": err_str,
-            }
+            else:
+                logger.error(f"Agent loop error: {err_str}")
+                return {
+                    "response": f"Agent error: {err_str}",
+                    "tool_calls": tool_calls_made,
+                    "turns": turns,
+                    "error": err_str,
+                }
 
     return {
         "response": final_text,
