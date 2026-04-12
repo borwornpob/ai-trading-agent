@@ -269,7 +269,7 @@ async def login_verify(req: LoginVerifyRequest, request: Request, response: Resp
         value=token,
         httponly=True,
         secure=True,
-        samesite="lax",
+        samesite="none",  # Required: frontend and backend are on different subdomains
         max_age=settings.jwt_expire_hours * 3600,
         path="/",
     )
@@ -292,11 +292,11 @@ async def logout(response: Response, session: str | None = Cookie(None),
             await db.execute(
                 update(AuthSession)
                 .where(AuthSession.jwt_jti == payload["jti"])
-                .values(revoked_at=datetime.now(timezone.utc))
+                .values(revoked_at=datetime.utcnow())
             )
             await db.commit()
 
-    response.delete_cookie("session", path="/")
+    response.delete_cookie("session", path="/", samesite="none", secure=True)
     return {"status": "logged_out"}
 
 
