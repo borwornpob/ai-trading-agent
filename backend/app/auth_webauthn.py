@@ -94,6 +94,8 @@ async def register_options(req: RegisterOptionsRequest, db: AsyncSession = Depen
     )
     existing_creds = creds_result.scalars().all()
 
+    from webauthn.helpers.structs import PublicKeyCredentialDescriptor
+
     options = generate_registration_options(
         rp_id=RP_ID,
         rp_name=RP_NAME,
@@ -104,7 +106,7 @@ async def register_options(req: RegisterOptionsRequest, db: AsyncSession = Depen
             resident_key=ResidentKeyRequirement.PREFERRED,
         ),
         exclude_credentials=[
-            {"type": "public-key", "id": c.credential_id}
+            PublicKeyCredentialDescriptor(id=c.credential_id)
             for c in existing_creds
         ],
     )
@@ -187,10 +189,12 @@ async def login_options(db: AsyncSession = Depends(get_db)):
     )
     creds = creds_result.scalars().all()
 
+    from webauthn.helpers.structs import PublicKeyCredentialDescriptor
+
     options = generate_authentication_options(
         rp_id=RP_ID,
         allow_credentials=[
-            {"type": "public-key", "id": c.credential_id}
+            PublicKeyCredentialDescriptor(id=c.credential_id)
             for c in creds
         ],
     )
