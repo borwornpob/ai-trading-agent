@@ -56,13 +56,8 @@ function ThemeToggle() {
 
 function LogoutButton() {
   const router = useRouter();
-  const handleLogout = async () => {
-    try {
-      const { default: api } = await import("@/lib/api");
-      await api.post("/api/auth/logout");
-    } catch {
-      // ignore logout errors
-    }
+  const handleLogout = () => {
+    localStorage.removeItem("token");
     router.push("/login");
   };
   return (

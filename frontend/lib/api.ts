@@ -1,11 +1,19 @@
 import axios from "axios";
 
 const api = axios.create({
-  // Use relative URL so requests go through Next.js rewrites (same-origin)
-  // This avoids cross-site cookie issues with Railway subdomains
-  baseURL: "",
+  baseURL: process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000",
   timeout: 10000,
-  withCredentials: true,
+});
+
+// Add Bearer token from localStorage
+api.interceptors.request.use((config) => {
+  if (typeof window !== "undefined") {
+    const token = localStorage.getItem("token");
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
+  }
+  return config;
 });
 
 // Auth interceptor: redirect to login on 401
@@ -13,7 +21,8 @@ api.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response?.status === 401 && typeof window !== "undefined") {
-      if (window.location.pathname !== "/login" && window.location.pathname !== "/setup") {
+      localStorage.removeItem("token");
+      if (window.location.pathname !== "/login") {
         window.location.href = "/login";
       }
     }

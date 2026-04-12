@@ -6,7 +6,7 @@ import { Sidebar, MobileHeader } from "@/components/layout/Sidebar";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import api from "@/lib/api";
 
-const AUTH_BYPASS_PAGES = ["/login", "/setup"];
+const AUTH_BYPASS_PAGES = ["/login"];
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -20,27 +20,25 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       return;
     }
 
-    // Check auth status via cookie-based session
+    // Check if token exists in localStorage
+    const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+    if (!token) {
+      router.replace("/login");
+      return;
+    }
+
+    // Verify token is still valid
     api.get("/api/auth/me")
-      .then((res) => {
-        if (res.data?.setup_required) {
-          router.replace("/setup");
-        } else {
-          setAuthChecked(true);
-        }
+      .then(() => {
+        setAuthChecked(true);
       })
-      .catch((err: unknown) => {
-        const status = (err && typeof err === "object" && "response" in err)
-          ? (err as { response?: { status?: number } }).response?.status
-          : undefined;
-        if (status === 401) {
-          router.replace("/login");
-        } else {
-          // Server error or network issue — allow access (auth might not be set up)
-          setAuthChecked(true);
-        }
+      .catch(() => {
+        // Token invalid or auth not configured — allow if no password set
+        api.get("/health")
+          .then(() => setAuthChecked(true))
+          .catch(() => setAuthChecked(true));
       });
-  }, [isAuthPage, router]);
+  }, [isAuthPage, router, pathname]);
 
   if (isAuthPage) {
     return <>{children}</>;

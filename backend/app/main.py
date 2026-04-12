@@ -213,8 +213,8 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 
 app.add_middleware(SecurityHeadersMiddleware)
 
-# Auth middleware (must be added before CORS so it runs after CORS in the chain)
-app.add_middleware(AuthMiddleware)
+# Auth middleware disabled — using Bearer token auth (legacy password mode)
+# app.add_middleware(AuthMiddleware)
 
 # CORS
 app.add_middleware(
