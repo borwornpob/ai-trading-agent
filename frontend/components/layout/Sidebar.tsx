@@ -24,15 +24,38 @@ import {
 import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 
-const navItems = [
-  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/backtest", label: "Backtest", icon: BarChart3 },
-  { href: "/history", label: "History", icon: History },
-  { href: "/insights", label: "AI Insights", icon: Brain },
-  { href: "/ml", label: "ML Model", icon: Cpu },
-  { href: "/macro", label: "Macro Data", icon: Globe },
-  { href: "/notifications", label: "Notifications", icon: Bell },
-  { href: "/integration", label: "Integration", icon: Plug },
+interface NavItem { href: string; label: string; icon: typeof LayoutDashboard; }
+interface NavGroup { label: string; items: NavItem[]; }
+
+const navGroups: NavGroup[] = [
+  {
+    label: "Overview",
+    items: [
+      { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+    ],
+  },
+  {
+    label: "Trading",
+    items: [
+      { href: "/backtest", label: "Backtest", icon: BarChart3 },
+      { href: "/history", label: "History", icon: History },
+    ],
+  },
+  {
+    label: "Analytics",
+    items: [
+      { href: "/insights", label: "AI Insights", icon: Brain },
+      { href: "/ml", label: "ML Model", icon: Cpu },
+      { href: "/macro", label: "Macro Data", icon: Globe },
+    ],
+  },
+  {
+    label: "System",
+    items: [
+      { href: "/integration", label: "Integration", icon: Plug },
+      { href: "/notifications", label: "Notifications", icon: Bell },
+    ],
+  },
 ];
 
 function ThemeToggle() {
@@ -94,30 +117,34 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
       <div className="mx-4 h-px bg-sidebar-border" />
 
       {/* Navigation */}
-      <nav className="flex-1 p-3 space-y-0.5">
-        <p className="px-3 py-2 text-xs font-semibold uppercase tracking-widest text-muted-foreground">
-          Navigation
-        </p>
-        {navItems.map((item) => {
-          const isActive = pathname === item.href || pathname?.startsWith(item.href + "/");
-          const Icon = item.icon;
-          return (
-            <Link
-              key={item.href}
-              href={item.href}
-              onClick={onNavigate}
-              className={cn(
-                "flex items-center gap-3 px-3 py-2.5 rounded-2xl text-sm font-semibold transition-all duration-150",
-                isActive
-                  ? "bg-primary text-primary-foreground"
-                  : "text-muted-foreground hover:text-foreground hover:bg-sidebar-accent"
-              )}
-            >
-              <Icon className="size-4" />
-              <span>{item.label}</span>
-            </Link>
-          );
-        })}
+      <nav className="flex-1 p-3 space-y-4 overflow-y-auto">
+        {navGroups.map((group) => (
+          <div key={group.label} className="space-y-0.5">
+            <p className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60">
+              {group.label}
+            </p>
+            {group.items.map((item) => {
+              const isActive = pathname === item.href || pathname?.startsWith(item.href + "/");
+              const Icon = item.icon;
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  onClick={onNavigate}
+                  className={cn(
+                    "flex items-center gap-3 px-3 py-2.5 rounded-2xl text-sm font-semibold transition-all duration-150",
+                    isActive
+                      ? "bg-primary text-primary-foreground"
+                      : "text-muted-foreground hover:text-foreground hover:bg-sidebar-accent"
+                  )}
+                >
+                  <Icon className="size-4" />
+                  <span>{item.label}</span>
+                </Link>
+              );
+            })}
+          </div>
+        ))}
       </nav>
 
       <div className="mx-4 h-px bg-sidebar-border" />

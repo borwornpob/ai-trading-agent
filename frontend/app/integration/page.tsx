@@ -126,7 +126,9 @@ export default function IntegrationPage() {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {integrations.map((intg) => {
             const result = testResults[intg.id];
-            const isConnected = result?.status === "connected";
+            const isTestedConnected = result?.status === "connected";
+            const isConfigured = intg.status === "configured";
+            const showConnected = isTestedConnected || isConfigured;
             const LogoComp = LOGOS[intg.id];
             return (
               <button key={intg.id} type="button" onClick={() => openModal(intg.id)}
@@ -138,7 +140,7 @@ export default function IntegrationPage() {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
                       <h3 className="font-semibold text-sm">{intg.name}</h3>
-                      {isConnected && (
+                      {showConnected && (
                         <span className="inline-flex items-center gap-1 text-xs font-medium text-green-500 bg-green-500/10 border border-green-500/20 rounded-full px-2 py-0.5">
                           <span className="size-1.5 rounded-full bg-green-500" />
                           Connected
@@ -149,16 +151,15 @@ export default function IntegrationPage() {
                   </div>
                 </div>
                 <div className="flex items-center justify-between mt-4 pt-3 border-t border-border/50">
-                  {!isConnected && (
+                  {!showConnected && (
                     <span className={`text-xs font-medium px-2.5 py-1 rounded-full ${
                       result?.status === "error" ? "bg-red-500/10 text-red-500" :
-                      intg.status === "configured" ? "bg-zinc-500/10 text-zinc-400" :
                       "bg-amber-500/10 text-amber-500"
                     }`}>
-                      {result?.status === "error" ? "Error" : intg.status === "configured" ? "Not tested" : "Not configured"}
+                      {result?.status === "error" ? "Error" : "Not configured"}
                     </span>
                   )}
-                  {isConnected && <span className="text-xs text-muted-foreground">{result.latency_ms}ms</span>}
+                  {isTestedConnected && <span className="text-xs text-muted-foreground">{result.latency_ms}ms</span>}
                   <span className="text-xs text-muted-foreground ml-auto">{intg.tools.length} tools</span>
                 </div>
               </button>
