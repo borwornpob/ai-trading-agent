@@ -112,11 +112,44 @@ async def list_jobs(
 
 @router.get("/{job_id}")
 async def get_job(job_id: int, request: Request):
-    """Get job detail including agent output."""
+    """Get job detail including agent output.
+
+    If job is still pending/running in DB, checks Redis for agent results
+    (agent runner writes results to Redis since it can't access DB directly).
+    """
     queue = _get_job_queue(request)
     job = await queue.get(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
+
+    # Check Redis for agent result if job still pending/running
+    if job.status in (JobStatus.PENDING, JobStatus.RUNNING):
+        try:
+            import json as _json
+            manager = getattr(request.app.state, "runner_manager", None)
+            if manager:
+                result = await manager.redis.hgetall(f"job:{job_id}:result")
+                if result:
+                    status_val = result.get(b"status", result.get("status", b"")).decode() if isinstance(result.get(b"status", result.get("status", b"")), bytes) else result.get("status", "")
+                    if status_val == "completed":
+                        output_raw = result.get(b"output", result.get("output", b"{}"))
+                        if isinstance(output_raw, bytes):
+                            output_raw = output_raw.decode()
+                        job.status = JobStatus.COMPLETED
+                        job.output = _json.loads(output_raw) if output_raw else {}
+                        job.completed_at = __import__("datetime").datetime.utcnow()
+                        await queue.db.commit()
+                    elif status_val == "failed":
+                        error_msg = result.get(b"error", result.get("error", b""))
+                        if isinstance(error_msg, bytes):
+                            error_msg = error_msg.decode()
+                        job.status = JobStatus.FAILED
+                        job.error = error_msg
+                        job.completed_at = __import__("datetime").datetime.utcnow()
+                        await queue.db.commit()
+        except Exception:
+            pass  # Non-critical — just return DB state
+
     return _job_to_response(job)
 
 

@@ -272,27 +272,20 @@ async def main() -> None:
                     redis_client=redis_client,
                 )
 
-                # Publish completion event (manager listens for this to update DB)
-                await redis_client.publish(
-                    f"runner:{runner_id}:job_complete",
-                    json.dumps({
-                        "job_id": job_id,
-                        "status": "completed",
-                        "output": output,
-                        "timestamp": datetime.now(timezone.utc).isoformat(),
-                    }),
-                )
+                # Update job status in Redis (for UI polling)
+                await redis_client.hset(f"job:{job_id}:result", mapping={
+                    "status": "completed",
+                    "output": json.dumps(output, default=str),
+                })
+                await redis_client.expire(f"job:{job_id}:result", 3600)
+
+                _log("info", f"Job {job_id} completed", {"output_preview": str(output)[:200]})
             except Exception as e:
                 _log("error", f"Job {job_id} failed: {e}")
-                await redis_client.publish(
-                    f"runner:{runner_id}:job_complete",
-                    json.dumps({
-                        "job_id": job_id,
-                        "status": "failed",
-                        "error": str(e),
-                        "timestamp": datetime.now(timezone.utc).isoformat(),
-                    }),
-                )
+                await redis_client.hset(f"job:{job_id}:result", mapping={
+                    "status": "failed",
+                    "error": str(e),
+                })
             finally:
                 # Remove from running set
                 await redis_client.srem(RUNNING_SET_KEY, str(job_id))
