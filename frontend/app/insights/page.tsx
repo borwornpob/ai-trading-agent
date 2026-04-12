@@ -73,7 +73,7 @@ export default function InsightsPage() {
       <PageHeader title="AI Insights" subtitle="Sentiment analysis and strategy optimization" />
 
       <PageInstructions
-        pageId="insights"
+
         items={[
           "The sentiment gauge shows AI analysis of gold market news — from bearish to bullish with confidence score.",
           "Run Optimization lets AI suggest strategy parameter improvements based on recent trade performance.",

@@ -96,7 +96,7 @@ export default function HistoryPage() {
       </PageHeader>
 
       <PageInstructions
-        pageId="history"
+
         items={[
           "View all closed trades with P&L breakdown. Switch between table and equity chart views.",
           "Trades with AI sentiment data show the label and confidence score. Use the download button to export CSV.",

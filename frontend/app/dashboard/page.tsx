@@ -37,7 +37,7 @@ import {
 import { useWebSocket } from "@/lib/websocket";
 import { useBotStore } from "@/store/botStore";
 import { SymbolTabs } from "@/components/ui/symbol-tabs";
-import { TimeframeSelector } from "@/components/ui/timeframe-selector";
+import { TimeframeSelector, TIMEFRAMES } from "@/components/ui/timeframe-selector";
 
 export default function DashboardPage() {
   const {
@@ -232,7 +232,7 @@ export default function DashboardPage() {
       </PageHeader>
 
       <PageInstructions
-        pageId="dashboard"
+
         items={[
           "Start/Stop controls the trading bot. Emergency Stop closes all positions immediately.",
           "The bot trades automatically based on the selected strategy. Monitor open positions, equity, and live events below.",
@@ -412,7 +412,7 @@ export default function DashboardPage() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {["M1", "M5", "M15", "M30", "H1", "H4", "D1"].map((tf) => (
+                    {TIMEFRAMES.map((tf) => (
                       <SelectItem key={tf} value={tf}>{tf}</SelectItem>
                     ))}
                   </SelectContent>

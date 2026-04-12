@@ -4,7 +4,6 @@ import { useState } from "react";
 import { Info, X } from "lucide-react";
 
 interface PageInstructionsProps {
-  pageId: string;
   items: string[];
 }
 
@@ -19,8 +18,8 @@ export function PageInstructions({ items }: PageInstructionsProps) {
         <div className="flex items-start gap-2.5 min-w-0">
           <Info className="size-3.5 text-muted-foreground mt-0.5 shrink-0" />
           <ul className="space-y-1 text-xs text-muted-foreground">
-            {items.map((text, i) => (
-              <li key={i}>{text}</li>
+            {items.map((text) => (
+              <li key={text}>{text}</li>
             ))}
           </ul>
         </div>

@@ -1,6 +1,6 @@
 "use client";
 
-const DEFAULT_TIMEFRAMES = ["M1", "M5", "M15", "H1", "H4", "D1"];
+export const TIMEFRAMES = ["M1", "M5", "M15", "M30", "H1", "H4", "D1"];
 
 type TimeframeSelectorProps = {
   value: string;
@@ -12,7 +12,7 @@ type TimeframeSelectorProps = {
 export function TimeframeSelector({
   value,
   onChange,
-  options = DEFAULT_TIMEFRAMES,
+  options = TIMEFRAMES,
   size = "sm",
 }: TimeframeSelectorProps) {
   return (

@@ -67,7 +67,7 @@ export default function MacroPage() {
       </PageHeader>
 
       <PageInstructions
-        pageId="macro"
+
         items={[
           "Economic indicators (DXY, Treasury yields, VIX) and their correlation with gold prices.",
           "Click Refresh FRED Data to fetch latest values. Upcoming economic events are listed with impact ratings.",

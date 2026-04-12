@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -16,6 +16,7 @@ import {
 import { PageHeader } from "@/components/layout/PageHeader";
 import { PageInstructions } from "@/components/layout/PageInstructions";
 import { StatCard } from "@/components/ui/stat-card";
+import { TIMEFRAMES } from "@/components/ui/timeframe-selector";
 import {
   runBacktest, runOptimize, getCurrentStrategy, getDataStatus, getSymbols,
 } from "@/lib/api";
@@ -33,7 +34,6 @@ const STRATEGIES = [
   { value: "ml_signal", label: "ML Signal" },
 ];
 
-const TIMEFRAMES = ["M1", "M5", "M15", "M30", "H1", "H4", "D1", "W1"];
 
 interface ParamDef {
   key: string;
@@ -100,15 +100,15 @@ export default function BacktestPage() {
     () => buildDefaultGridInputs("ema_crossover")
   );
 
-  const currentParams = useMemo(() => STRATEGY_PARAMS[strategy] || [], [strategy]);
+  const currentParams: ParamDef[] = STRATEGY_PARAMS[strategy] ?? [];
 
-  // Reset param grid when strategy changes
-  useEffect(() => {
-    setParamGridInputs(buildDefaultGridInputs(strategy));
-  }, [strategy]);
+  const handleStrategyChange = (v: string) => {
+    setStrategy(v);
+    setParamGridInputs(buildDefaultGridInputs(v));
+  };
 
   useEffect(() => {
-    getCurrentStrategy().then((res) => { if (res.data?.name) setStrategy(res.data.name); }).catch(() => {});
+    getCurrentStrategy().then((res) => { if (res.data?.name) handleStrategyChange(res.data.name); }).catch(() => {});
     getDataStatus().then((res) => { if (Array.isArray(res.data) && res.data.length > 0) setHasDbData(true); }).catch(() => {});
     getSymbols().then((res) => { const syms = res.data?.symbols || res.data; if (Array.isArray(syms) && syms.length > 0) setAvailableSymbols(syms); }).catch(() => {});
   }, []);
@@ -153,7 +153,7 @@ export default function BacktestPage() {
       <div className="grid grid-cols-3 gap-3">
         <div className="space-y-1">
           <label className="text-[11px] text-muted-foreground font-medium">Strategy</label>
-          <Select value={strategy} onValueChange={(v) => v && setStrategy(v)}>
+          <Select value={strategy} onValueChange={(v) => v && handleStrategyChange(v)}>
             <SelectTrigger className="text-sm"><SelectValue /></SelectTrigger>
             <SelectContent>
               {STRATEGIES.map((s) => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}
@@ -227,7 +227,7 @@ export default function BacktestPage() {
       <PageHeader title="Backtester" subtitle="Test strategies against historical data" />
 
       <PageInstructions
-        pageId="backtest"
+
         items={[
           "Select a strategy, symbol, and timeframe. Use MT5 for live data or DB for historical (requires data collection from ML page).",
           "Backtest tab runs a single test. Optimizer tab searches parameter combinations to find the best settings.",

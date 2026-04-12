@@ -58,7 +58,7 @@ export default function NotificationsPage() {
       <PageHeader title="Notifications" subtitle="Bot event history and alerts" />
 
       <PageInstructions
-        pageId="notifications"
+
         items={[
           "Bot event notifications in chronological order, color-coded by type.",
           "Trade events in green, errors in red, settings changes in purple. Filter by time range and type.",

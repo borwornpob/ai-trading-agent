@@ -4,6 +4,7 @@ Scheduler — APScheduler jobs for bot operations (multi-symbol).
 
 import asyncio
 from collections import defaultdict
+from datetime import datetime
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from loguru import logger
@@ -249,7 +250,6 @@ class BotScheduler:
         Runs every 15 min on weekdays, but skips 3 out of 4 runs on weekends
         (effectively hourly) to save API cost.
         """
-        from datetime import datetime
         now = datetime.utcnow()
         is_weekend = now.weekday() >= 5  # Saturday=5, Sunday=6
         if is_weekend and now.minute not in (2,):

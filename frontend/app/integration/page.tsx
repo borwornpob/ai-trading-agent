@@ -122,7 +122,7 @@ export default function IntegrationPage() {
       </PageHeader>
 
       <PageInstructions
-        pageId="integration"
+
         items={[
           "Connect external services here. Click Configure to add API keys, then Test Connection to verify.",
           "MT5 requires a running MetaTrader 5 terminal. Claude AI needs an Anthropic API key. Telegram needs a bot token from @BotFather.",

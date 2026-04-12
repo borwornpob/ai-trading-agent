@@ -11,13 +11,12 @@ import { PageHeader } from "@/components/layout/PageHeader";
 import { PageInstructions } from "@/components/layout/PageInstructions";
 import { trainModel, getModelStatus, mlPredict, getDataStatus, collectData, getSymbols } from "@/lib/api";
 import { SymbolTabs } from "@/components/ui/symbol-tabs";
+import { TIMEFRAMES } from "@/components/ui/timeframe-selector";
 
 type SymbolInfo = {
   symbol: string; display_name: string; state: string; timeframe?: string;
   ml_tp_pips?: number; ml_sl_pips?: number; ml_forward_bars?: number; ml_timeframe?: string;
 };
-
-const TIMEFRAMES = ["M1", "M5", "M15", "M30", "H1", "H4", "D1"];
 
 export default function MLPage() {
   const [symbols, setSymbols] = useState<SymbolInfo[]>([]);
@@ -158,7 +157,7 @@ export default function MLPage() {
       <PageHeader title="ML Model" subtitle="Train and manage LightGBM signal model per symbol" />
 
       <PageInstructions
-        pageId="ml"
+
         items={[
           "Step 1: Collect Data — Fetch historical bars from MT5 into the database for your chosen symbol and timeframe.",
           "Step 2: Train Model — Train a LightGBM classifier on collected data. Adjust TP/SL pips and forward bars in Advanced Parameters.",

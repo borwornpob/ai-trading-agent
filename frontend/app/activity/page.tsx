@@ -124,7 +124,7 @@ export default function ActivityPage() {
       </PageHeader>
 
       <PageInstructions
-        pageId="activity"
+
         items={[
           "Timeline of all bot events: trades, signals, sentiment analyses, errors, and system events.",
           "Filter by time range and category. Events are stored persistently in the database.",
