@@ -281,31 +281,36 @@ async def _get_secret_or_404(db: AsyncSession, key: str) -> Secret:
 
 
 async def _test_anthropic(token: str) -> dict:
-    """Test Anthropic API/OAuth token by listing models."""
-    async with httpx.AsyncClient(timeout=10) as client:
-        # Try OAuth token format first (Authorization: Bearer)
-        resp = await client.get(
-            "https://api.anthropic.com/v1/models",
-            headers={
-                "Authorization": f"Bearer {token}",
-                "anthropic-version": "2023-06-01",
-            },
-        )
-        if resp.status_code == 200:
-            return {"ok": True, "message": "Claude OAuth token valid"}
+    """Test Claude token — tries SDK (Max subscription) first, then API key."""
+    # Try Claude Code SDK (Max subscription — no API key needed)
+    try:
+        from claude_code_sdk import query as sdk_query, ClaudeCodeOptions, AssistantMessage, TextBlock
+        text = ""
+        async for msg in sdk_query(
+            prompt="Say OK",
+            options=ClaudeCodeOptions(max_turns=1, model="claude-haiku-4-5-20251001"),
+        ):
+            if isinstance(msg, AssistantMessage):
+                for block in msg.content:
+                    if isinstance(block, TextBlock):
+                        text = block.text
+        if text:
+            return {"ok": True, "message": "Claude (Max subscription) connected via SDK"}
+    except Exception as e:
+        if "rate_limit" in str(e).lower():
+            return {"ok": True, "message": "Claude (Max subscription) connected (rate limited)"}
+        # SDK not available or failed — try API key
 
-        # Fallback: try API key format (x-api-key)
+    # Fallback: try as API key (x-api-key header)
+    async with httpx.AsyncClient(timeout=10) as client:
         resp = await client.get(
             "https://api.anthropic.com/v1/models",
-            headers={
-                "x-api-key": token,
-                "anthropic-version": "2023-06-01",
-            },
+            headers={"x-api-key": token, "anthropic-version": "2023-06-01"},
         )
         if resp.status_code == 200:
             return {"ok": True, "message": "Anthropic API key valid"}
 
-        return {"ok": False, "message": f"Anthropic API error: {resp.status_code}"}
+    return {"ok": False, "message": "Token invalid (not a valid API key, and SDK not available)"}
 
 
 async def _test_telegram(token: str) -> dict:

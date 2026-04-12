@@ -5,7 +5,7 @@ Uses: sentiment + history tools only (read-only, no execution).
 Model: Haiku (fast, cost-efficient for analysis tasks).
 """
 
-from mcp_server.agents.base import run_agent_loop, filter_tools, MODEL_SPECIALIST
+from mcp_server.agents.base import run_agent_loop, MODEL_SPECIALIST
 
 SYSTEM_PROMPT = """You are a Fundamental Analyst for a multi-symbol trading system covering GOLD, OILCash, BTCUSD, and USDJPY.
 
@@ -47,7 +47,6 @@ async def analyze(symbol: str, timeframe: str = "M15") -> dict:
     Returns:
         Dict with response (analysis text), tool_calls, and metadata.
     """
-    tools = filter_tools(TOOL_NAMES)
     user_message = (
         f"Provide a fundamental analysis for {symbol}. "
         f"Check current sentiment, recent performance, and today's P&L to form a directional bias."
@@ -55,7 +54,7 @@ async def analyze(symbol: str, timeframe: str = "M15") -> dict:
     return await run_agent_loop(
         system_prompt=SYSTEM_PROMPT,
         user_message=user_message,
-        tools=tools,
+        tool_names=TOOL_NAMES,
         model=MODEL_SPECIALIST,
         max_turns=8,
         timeout=60,

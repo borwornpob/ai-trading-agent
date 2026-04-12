@@ -242,12 +242,12 @@ class TestReflectorAgent:
         execution_tools = {"place_order", "modify_position", "close_position"}
         assert not set(TOOL_NAMES) & execution_tools
 
-    def test_all_reflector_tools_exist_in_agent_config(self):
+    def test_all_reflector_tools_exist_in_sdk_tools(self):
         from mcp_server.agents.reflector import TOOL_NAMES
-        from mcp_server.agent_config import TOOLS
-        all_tool_names = {t["name"] for t in TOOLS}
+        from mcp_server.sdk_tools import ALL_SDK_TOOLS
+        all_tool_names = {t.name for t in ALL_SDK_TOOLS}
         for name in TOOL_NAMES:
-            assert name in all_tool_names, f"Reflector tool '{name}' not in TOOLS"
+            assert name in all_tool_names, f"Reflector tool '{name}' not in SDK tools"
 
 
 # ─── Updated Orchestrator Tests ──────────────────────────────────────────────

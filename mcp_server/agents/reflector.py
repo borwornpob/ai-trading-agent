@@ -8,7 +8,7 @@ Uses: learning + session + strategy_gen tools.
 Model: Haiku (fast review, cost-efficient).
 """
 
-from mcp_server.agents.base import run_agent_loop, filter_tools, MODEL_SPECIALIST
+from mcp_server.agents.base import run_agent_loop, MODEL_SPECIALIST
 
 SYSTEM_PROMPT = """You are a Trade Reflector for a multi-symbol trading system. Your job is to review recent trading performance and extract actionable learnings.
 
@@ -60,7 +60,6 @@ async def reflect(symbol: str, timeframe: str = "M15") -> dict:
     Returns:
         Dict with reflection report, learnings, and strategy recommendation.
     """
-    tools = filter_tools(TOOL_NAMES)
     user_message = (
         f"Reflect on recent {symbol} trading performance. "
         f"Analyze trades from the past 7 days, detect the current market regime on {timeframe}, "
@@ -70,7 +69,7 @@ async def reflect(symbol: str, timeframe: str = "M15") -> dict:
     return await run_agent_loop(
         system_prompt=SYSTEM_PROMPT,
         user_message=user_message,
-        tools=tools,
+        tool_names=TOOL_NAMES,
         model=MODEL_SPECIALIST,
         max_turns=10,
         timeout=90,

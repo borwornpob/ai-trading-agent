@@ -21,7 +21,6 @@ from loguru import logger
 from mcp_server.agents import technical_analyst, fundamental_analyst, risk_analyst, reflector
 from mcp_server.agents.base import (
     run_agent_loop,
-    filter_tools,
     MODEL_ORCHESTRATOR,
 )
 
@@ -149,12 +148,10 @@ async def run_multi_agent(
         reflection_report=reflection_report,
     )
 
-    orchestrator_tools = filter_tools(ORCHESTRATOR_TOOL_NAMES)
-
     orchestrator_result = await run_agent_loop(
         system_prompt=SYSTEM_PROMPT,
         user_message=synthesis_message,
-        tools=orchestrator_tools,
+        tool_names=ORCHESTRATOR_TOOL_NAMES,
         model=MODEL_ORCHESTRATOR,
         max_turns=10,
         timeout=120,

@@ -1,21 +1,33 @@
 """
-Base agent — shared agentic loop used by all specialist agents and the orchestrator.
+Base agent — shared agent loop used by all specialist agents and the orchestrator.
 
-Provides a reusable `run_agent_loop()` that sends messages to Claude with a subset
-of tools, executes tool calls, and returns the final response.
+Uses Claude Code SDK (claude-code-sdk) which authenticates via Claude Max
+subscription through the CLI. No API key needed.
 """
 
-import asyncio
 import json
-import os
 import time
 from typing import Any
 
-from anthropic import AsyncAnthropic
 from loguru import logger
 
-from mcp_server.agent_config import _execute_tool, TOOLS as ALL_TOOLS
-from mcp_server.guardrails import AGENT_TIMEOUT
+from mcp_server.sdk_tools import create_trading_mcp_server, filter_sdk_tools
+
+# Lazy import to handle missing SDK gracefully
+_SDK_AVAILABLE = False
+try:
+    from claude_code_sdk import (
+        query as sdk_query,
+        ClaudeCodeOptions,
+        AssistantMessage,
+        ResultMessage,
+        TextBlock,
+        ToolUseBlock,
+    )
+    from claude_code_sdk._errors import MessageParseError
+    _SDK_AVAILABLE = True
+except ImportError:
+    pass
 
 
 # ─── Model Constants ─────────────────────────────────────────────────────────
@@ -29,103 +41,103 @@ MODEL_SPECIALIST = "claude-haiku-4-5-20251001"
 async def run_agent_loop(
     system_prompt: str,
     user_message: str,
-    tools: list[dict[str, Any]],
+    tools: list | None = None,
+    tool_names: list[str] | None = None,
     model: str = MODEL_SPECIALIST,
     max_turns: int = 15,
     timeout: int = 120,
-    oauth_token: str | None = None,
+    **kwargs,
 ) -> dict:
-    """Run a single agent loop with the given tools and prompt.
+    """Run an agent loop using Claude Code SDK.
 
     Args:
         system_prompt: Agent's system prompt (role definition)
         user_message: The task/query for the agent
-        tools: List of tool definitions (subset of ALL_TOOLS)
+        tools: List of SDK tool objects (from sdk_tools.py)
+        tool_names: Alternative: list of tool names to filter from ALL_SDK_TOOLS
         model: Claude model to use
         max_turns: Maximum conversation turns
         timeout: Timeout in seconds
-        oauth_token: OAuth token (defaults to env var)
 
     Returns:
         Dict with response text, tool calls made, and metadata.
     """
-    token = oauth_token or os.environ.get("CLAUDE_OAUTH_TOKEN")
-    if not token:
-        return {"response": "No OAuth token available", "tool_calls": [], "turns": 0}
+    if not _SDK_AVAILABLE:
+        return {"response": "Claude Code SDK not available", "tool_calls": [], "turns": 0}
 
-    client = AsyncAnthropic(api_key=token)
-    messages: list[dict] = [{"role": "user", "content": user_message}]
+    # Build tools list
+    if tools is None and tool_names is not None:
+        tools = filter_sdk_tools(tool_names)
+
+    # Build MCP server with selected tools
+    mcp_server = create_trading_mcp_server(tools)
+
+    # Build allowed tool names for SDK
+    allowed = [t.name for t in (tools or [])]
+
+    options = ClaudeCodeOptions(
+        system_prompt=system_prompt,
+        model=model,
+        max_turns=max_turns,
+        mcp_servers={"trading": mcp_server},
+        allowed_tools=allowed if allowed else None,
+        permission_mode="bypassPermissions",
+    )
+
     tool_calls_made: list[dict] = []
+    final_text = ""
+    turns = 0
     start_time = time.time()
 
-    for turn in range(max_turns):
-        if time.time() - start_time > timeout:
-            logger.warning(f"Agent timeout after {timeout}s")
-            break
+    try:
+        async for msg in sdk_query(prompt=user_message, options=options):
+            elapsed = time.time() - start_time
+            if elapsed > timeout:
+                logger.warning(f"Agent timeout after {elapsed:.0f}s")
+                break
 
-        try:
-            response = await client.messages.create(
-                model=model,
-                max_tokens=4096,
-                system=system_prompt,
-                tools=tools if tools else None,
-                messages=messages,
-            )
-        except Exception as e:
-            logger.error(f"Claude API error in agent loop: {e}")
+            msg_type = getattr(msg, "type", "")
+            if msg_type == "assistant":
+                turns += 1
+                for block in getattr(msg, "content", []):
+                    block_type = getattr(block, "type", "")
+                    if block_type == "text" and hasattr(block, "text"):
+                        final_text = block.text
+                    elif block_type == "tool_use" and hasattr(block, "name"):
+                        tool_calls_made.append({
+                            "tool": block.name,
+                            "input": getattr(block, "input", {}),
+                        })
+                        logger.info(f"[Agent] Tool: {block.name}")
+
+            elif msg_type == "result":
+                if hasattr(msg, "result") and msg.result:
+                    final_text = msg.result
+                turns = getattr(msg, "num_turns", turns)
+                break
+
+    except Exception as e:
+        err_str = str(e)
+        # Handle known SDK parse errors (rate_limit_event etc.)
+        if "rate_limit" in err_str.lower():
+            logger.warning("Rate limited by Claude — response may be partial")
+        else:
+            logger.error(f"Agent loop error: {e}")
             return {
-                "response": f"API error: {e}",
+                "response": f"Agent error: {e}",
                 "tool_calls": tool_calls_made,
-                "turns": turn,
-                "error": str(e),
+                "turns": turns,
+                "error": err_str,
             }
-
-        assistant_content = response.content
-        messages.append({"role": "assistant", "content": assistant_content})
-
-        # If model is done (no more tool calls)
-        if response.stop_reason == "end_turn":
-            final_text = ""
-            for block in assistant_content:
-                if hasattr(block, "text"):
-                    final_text += block.text
-            return {
-                "response": final_text,
-                "tool_calls": tool_calls_made,
-                "turns": turn + 1,
-                "duration_s": round(time.time() - start_time, 1),
-            }
-
-        # Execute tool calls
-        tool_results = []
-        for block in assistant_content:
-            if block.type == "tool_use":
-                logger.info(f"[Specialist] Tool: {block.name}")
-                result_str = await _execute_tool(block.name, block.input)
-
-                tool_calls_made.append({
-                    "tool": block.name,
-                    "input": block.input,
-                    "output_preview": result_str[:200],
-                })
-
-                tool_results.append({
-                    "type": "tool_result",
-                    "tool_use_id": block.id,
-                    "content": result_str,
-                })
-
-        if tool_results:
-            messages.append({"role": "user", "content": tool_results})
 
     return {
-        "response": "Max turns reached",
+        "response": final_text,
         "tool_calls": tool_calls_made,
-        "turns": max_turns,
+        "turns": turns,
         "duration_s": round(time.time() - start_time, 1),
     }
 
 
-def filter_tools(tool_names: list[str]) -> list[dict[str, Any]]:
-    """Filter ALL_TOOLS to only include the named tools."""
-    return [t for t in ALL_TOOLS if t["name"] in tool_names]
+def filter_tools(tool_names: list[str]) -> list:
+    """Filter SDK tools by name (for backward compatibility)."""
+    return filter_sdk_tools(tool_names)

@@ -19,12 +19,13 @@ from app.runner.agent_entrypoint import (
 class TestExecuteJob:
     @pytest.mark.asyncio
     async def test_stub_returns_result(self):
-        result = await execute_job(
-            job_id=1,
-            job_type="candle_analysis",
-            job_input={"symbol": "GOLD", "timeframe": "M15"},
-            runner_id=42,
-        )
+        with patch("app.runner.agent_entrypoint._AGENT_AVAILABLE", False):
+            result = await execute_job(
+                job_id=1,
+                job_type="candle_analysis",
+                job_input={"symbol": "GOLD", "timeframe": "M15"},
+                runner_id=42,
+            )
         assert result["status"] == "stub"
         assert result["job_type"] == "candle_analysis"
         assert result["input_received"] == {"symbol": "GOLD", "timeframe": "M15"}
@@ -32,12 +33,13 @@ class TestExecuteJob:
 
     @pytest.mark.asyncio
     async def test_stub_handles_none_input(self):
-        result = await execute_job(
-            job_id=2,
-            job_type="manual_trade",
-            job_input=None,
-            runner_id=1,
-        )
+        with patch("app.runner.agent_entrypoint._AGENT_AVAILABLE", False):
+            result = await execute_job(
+                job_id=2,
+                job_type="manual_trade",
+                job_input=None,
+                runner_id=1,
+            )
         assert result["status"] == "stub"
         assert result["input_received"] is None
 
@@ -85,13 +87,14 @@ class TestMainLoopJobProcessing:
         await redis_client.sadd(RUNNING_SET_KEY, str(data["job_id"]))
         assert await redis_client.scard(RUNNING_SET_KEY) == 1
 
-        # Execute
-        output = await execute_job(
-            job_id=data["job_id"],
-            job_type=data["job_type"],
-            job_input=data.get("input"),
-            runner_id=runner_id,
-        )
+        # Execute (force stub mode)
+        with patch("app.runner.agent_entrypoint._AGENT_AVAILABLE", False):
+            output = await execute_job(
+                job_id=data["job_id"],
+                job_type=data["job_type"],
+                job_input=data.get("input"),
+                runner_id=runner_id,
+            )
         assert output["status"] == "stub"
 
         # Cleanup

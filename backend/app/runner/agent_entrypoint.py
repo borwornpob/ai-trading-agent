@@ -72,8 +72,9 @@ async def execute_job(
 ) -> dict:
     """Execute an agent job.
 
-    If the Claude Agent (mcp_server) is available and CLAUDE_OAUTH_TOKEN is set,
-    runs the full agentic loop. Otherwise falls back to stub executor.
+    If the Claude Code SDK (mcp_server) is available, runs the agentic loop
+    using Claude Max subscription. Otherwise falls back to stub executor.
+    No API key needed — SDK uses CLI auth automatically.
     """
     _log("info", f"[Agent] Executing job {job_id}: type={job_type}", {
         "job_id": job_id,
@@ -81,9 +82,7 @@ async def execute_job(
         "input": job_input,
     })
 
-    oauth_token = os.environ.get("CLAUDE_OAUTH_TOKEN")
-
-    if _AGENT_AVAILABLE and oauth_token:
+    if _AGENT_AVAILABLE:
         # Initialize broker with Redis for guardrails
         if redis_client:
             init_broker(redis_client)
@@ -97,7 +96,6 @@ async def execute_job(
                 result = await run_multi_agent(
                     job_type=job_type,
                     job_input=job_input,
-                    oauth_token=oauth_token,
                 )
                 _log("info", f"[Agent] Job {job_id} completed via multi-agent", {
                     "orchestrator_turns": result.get("orchestrator_turns"),
@@ -114,7 +112,6 @@ async def execute_job(
             result = await run_agent(
                 job_type=job_type,
                 job_input=job_input,
-                oauth_token=oauth_token,
             )
             _log("info", f"[Agent] Job {job_id} completed via Claude agent", {
                 "turns": result.get("turns"),
@@ -132,7 +129,7 @@ async def execute_job(
             }
     else:
         # Stub executor (no token or agent not available)
-        reason = "no CLAUDE_OAUTH_TOKEN" if not oauth_token else "agent module not available"
+        reason = "agent module not available"
         _log("info", f"[Agent] Using stub executor ({reason})")
         await asyncio.sleep(0.1)
 

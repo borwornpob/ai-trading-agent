@@ -5,7 +5,7 @@ Uses: risk + portfolio + positions tools only (read-only, no execution).
 Model: Haiku (fast, cost-efficient for analysis tasks).
 """
 
-from mcp_server.agents.base import run_agent_loop, filter_tools, MODEL_SPECIALIST
+from mcp_server.agents.base import run_agent_loop, MODEL_SPECIALIST
 
 SYSTEM_PROMPT = """You are a Risk Analyst for a multi-symbol trading system covering GOLD, OILCash, BTCUSD, and USDJPY.
 
@@ -62,8 +62,6 @@ async def analyze(
     Returns:
         Dict with response (risk assessment text), tool_calls, and metadata.
     """
-    tools = filter_tools(TOOL_NAMES)
-
     if signal != 0:
         direction = "BUY" if signal == 1 else "SELL"
         user_message = (
@@ -79,7 +77,7 @@ async def analyze(
     return await run_agent_loop(
         system_prompt=SYSTEM_PROMPT,
         user_message=user_message,
-        tools=tools,
+        tool_names=TOOL_NAMES,
         model=MODEL_SPECIALIST,
         max_turns=10,
         timeout=60,

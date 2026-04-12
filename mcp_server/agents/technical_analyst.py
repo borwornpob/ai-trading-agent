@@ -5,7 +5,7 @@ Uses: market_data + indicators tools only (read-only, no execution).
 Model: Haiku (fast, cost-efficient for analysis tasks).
 """
 
-from mcp_server.agents.base import run_agent_loop, filter_tools, MODEL_SPECIALIST
+from mcp_server.agents.base import run_agent_loop, MODEL_SPECIALIST
 
 SYSTEM_PROMPT = """You are a Technical Analyst for a multi-symbol trading system covering GOLD, OILCash, BTCUSD, and USDJPY.
 
@@ -50,7 +50,6 @@ async def analyze(symbol: str, timeframe: str = "M15") -> dict:
     Returns:
         Dict with response (analysis text), tool_calls, and metadata.
     """
-    tools = filter_tools(TOOL_NAMES)
     user_message = (
         f"Analyze {symbol} on the {timeframe} timeframe. "
         f"Use run_full_analysis to get all indicators, then provide your technical assessment."
@@ -58,7 +57,7 @@ async def analyze(symbol: str, timeframe: str = "M15") -> dict:
     return await run_agent_loop(
         system_prompt=SYSTEM_PROMPT,
         user_message=user_message,
-        tools=tools,
+        tool_names=TOOL_NAMES,
         model=MODEL_SPECIALIST,
         max_turns=8,
         timeout=60,
