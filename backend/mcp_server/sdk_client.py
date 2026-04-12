@@ -60,6 +60,7 @@ async def sdk_complete(
     """Simple prompt → text response. No tools. For sentiment analysis."""
     try:
         text_parts: list[str] = []
+        stderr_lines: list[str] = []
 
         async for msg in query(
             prompt=prompt,
@@ -68,6 +69,7 @@ async def sdk_complete(
                 model=model,
                 max_turns=max_turns,
                 permission_mode="bypassPermissions",
+                stderr=lambda line: stderr_lines.append(line),
             ),
         ):
             if isinstance(msg, AssistantMessage):
@@ -80,10 +82,12 @@ async def sdk_complete(
             logger.info(f"SDK complete: {len(result)} chars")
             return result
 
-        logger.warning("SDK complete: empty response")
+        logger.warning(f"SDK complete: empty response. stderr: {''.join(stderr_lines[-5:])}")
         return None
     except Exception as e:
         logger.error(f"SDK complete error: {e}")
+        if stderr_lines:
+            logger.error(f"SDK stderr: {''.join(stderr_lines[-10:])}")
         return None
 
 
@@ -105,6 +109,7 @@ async def sdk_agent_loop(
     tool_calls: list[dict] = []
     turns = 0
     cost_usd: float | None = None
+    stderr_lines: list[str] = []
 
     try:
         options = ClaudeAgentOptions(
@@ -113,6 +118,7 @@ async def sdk_agent_loop(
             max_turns=max_turns,
             permission_mode="bypassPermissions",
             mcp_servers=_get_mcp_server_config(),
+            stderr=lambda line: stderr_lines.append(line),
         )
 
         # Filter tools if specified
@@ -155,6 +161,8 @@ async def sdk_agent_loop(
 
     except Exception as e:
         logger.error(f"SDK agent error: {e}")
+        if stderr_lines:
+            logger.error(f"SDK stderr: {''.join(stderr_lines[-10:])}")
         return {
             "response": f"Agent error: {e}",
             "tool_calls": tool_calls,
