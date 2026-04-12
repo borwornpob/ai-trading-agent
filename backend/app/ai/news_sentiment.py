@@ -8,11 +8,11 @@ from datetime import datetime, timezone
 
 import redis.asyncio as redis
 from loguru import logger
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.client import AIClient
 from app.ai.prompts import get_enhanced_sentiment_prompt, get_sentiment_prompt
 from app.db.models import NewsSentiment
+from app.db.session import async_session
 
 
 SENTIMENT_CACHE_TTL = 900  # 15 minutes
@@ -39,9 +39,9 @@ class SentimentResult:
 
 
 class NewsSentimentAnalyzer:
-    def __init__(self, ai_client: AIClient, db_session: AsyncSession, redis_client: redis.Redis):
+    def __init__(self, ai_client: AIClient, db_session, redis_client: redis.Redis):
         self.ai = ai_client
-        self.db = db_session
+        self.db = db_session  # kept for backward compat (read path)
         self.redis = redis_client
 
     async def analyze(self, news_items: list[dict], context: dict | None = None, symbol: str = "GOLD") -> SentimentResult:
@@ -85,23 +85,23 @@ class NewsSentimentAnalyzer:
             analyzed_at=now,
         )
 
-        # Save to DB
+        # Save to DB — use a fresh session to avoid shared session corruption
         try:
-            for item in news_items:
-                record = NewsSentiment(
-                    headline=item["title"],
-                    source=item.get("source", ""),
-                    published_at=datetime.fromisoformat(item["published"]).replace(tzinfo=None) if item.get("published") else None,
-                    sentiment_label=sentiment.label,
-                    sentiment_score=sentiment.score,
-                    confidence=sentiment.confidence,
-                    raw_response=json.dumps(result),
-                )
-                self.db.add(record)
-            await self.db.commit()
+            async with async_session() as db:
+                for item in news_items:
+                    record = NewsSentiment(
+                        headline=item["title"],
+                        source=item.get("source", ""),
+                        published_at=datetime.fromisoformat(item["published"]).replace(tzinfo=None) if item.get("published") else None,
+                        sentiment_label=sentiment.label,
+                        sentiment_score=sentiment.score,
+                        confidence=sentiment.confidence,
+                        raw_response=json.dumps(result),
+                    )
+                    db.add(record)
+                await db.commit()
         except Exception as e:
             logger.error(f"Failed to save sentiment to DB: {e}")
-            await self.db.rollback()
 
         # Cache in Redis
         try:

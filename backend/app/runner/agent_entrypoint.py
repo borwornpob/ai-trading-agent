@@ -56,7 +56,7 @@ _MULTI_AGENT_AVAILABLE = False
 try:
     sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
     from mcp_server.agent_config import run_agent, run_multi_agent
-    from mcp_server.tools.broker import init_broker
+    from mcp_server.tools import init_mcp_tools
     _AGENT_AVAILABLE = True
     _MULTI_AGENT_AVAILABLE = True
 except ImportError:
@@ -83,10 +83,6 @@ async def execute_job(
     })
 
     if _AGENT_AVAILABLE:
-        # Initialize broker with Redis for guardrails
-        if redis_client:
-            init_broker(redis_client)
-
         # Choose single-agent or multi-agent mode
         use_multi = os.environ.get("AGENT_MODE", "single") == "multi"
 
@@ -193,6 +189,11 @@ async def main() -> None:
     except Exception as e:
         _log("error", f"Failed to connect to Redis: {e}")
         sys.exit(1)
+
+    # Initialize MCP tools once at startup (broker, session, etc.)
+    if _AGENT_AVAILABLE:
+        init_mcp_tools(redis_client)
+        _log("info", "MCP tools initialized")
 
     # Start health server
     health_server = await start_health_server()

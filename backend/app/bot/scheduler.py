@@ -267,7 +267,15 @@ class BotScheduler:
         try:
             from mcp_server.agent_config import run_agent
         except ImportError:
-            logger.warning("AI agent not available (mcp_server not importable)")
+            logger.error("CRITICAL: AI agent not available — trading disabled for this cycle!")
+            # Notify via Telegram so operator knows trading is offline
+            if self.manager:
+                for engine in self.manager.engines.values():
+                    if engine.notifier:
+                        await engine._notify(engine.notifier.send_error_alert(
+                            "⚠️ AI agent unavailable (mcp_server not importable) — trading disabled"
+                        ))
+                        break  # one notification is enough
             return
 
         for sym in symbols:
@@ -277,7 +285,7 @@ class BotScheduler:
             try:
                 result = await run_agent(
                     job_type="candle_analysis",
-                    job_input={"symbol": sym, "timeframe": engine._timeframe},
+                    job_input={"symbol": sym, "timeframe": engine.timeframe},
                 )
                 decision = result.get("decision", "HOLD")
                 logger.info(f"AI agent [{sym}]: {decision[:200]}")
@@ -391,10 +399,9 @@ class BotScheduler:
     async def _ml_retrain_symbol(self, symbol: str, engine):
         """Train ML model for a single symbol."""
         try:
-            import asyncio
             import io
             import json
-            from datetime import datetime, timedelta
+            from datetime import timedelta
 
             import joblib
             from sqlalchemy import select, update

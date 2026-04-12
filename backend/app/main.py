@@ -126,6 +126,18 @@ async def lifespan(app: FastAPI):
     health_monitor = HealthMonitor(connector, manager, notifier)
     app.state.health_monitor = health_monitor
 
+    # Initialize MCP tools (needed for AI agent trading via scheduler)
+    try:
+        from mcp_server.tools import init_mcp_tools
+    except ImportError:
+        logger.warning("MCP tools not available (mcp_server not importable)")
+    else:
+        try:
+            init_mcp_tools(redis_client)
+            logger.info("MCP tools initialized for AI agent")
+        except Exception as e:
+            logger.error(f"MCP tools init failed: {e} — AI agent trading may not work")
+
     # Start scheduler
     scheduler = BotScheduler(manager)
     scheduler.set_health_monitor(health_monitor)
