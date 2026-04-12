@@ -14,6 +14,8 @@ import {
   getRunnerMetrics,
   getRunnerJobs,
   listJobs,
+  createJob,
+  getJob,
   cancelJob,
   retryJob,
   getRolloutMode,
@@ -152,6 +154,15 @@ export default function RunnersPage() {
   const [readiness, setReadiness] = useState<{ ready: boolean; errors: number; warnings: number; checks: { name: string; status: string; detail: string }[] } | null>(null);
   const [showReadiness, setShowReadiness] = useState(false);
 
+  // AI Test
+  const [testingAI, setTestingAI] = useState(false);
+  const [aiTestResult, setAiTestResult] = useState<{
+    status: string;
+    message: string;
+    detail?: string;
+    duration_s?: number;
+  } | null>(null);
+
   // Expanded panels
   const [expandedLogs, setExpandedLogs] = useState<number | null>(null);
   const [expandedMetrics, setExpandedMetrics] = useState<number | null>(null);
@@ -209,6 +220,69 @@ export default function RunnersPage() {
       setRolloutDescription(res.data.description);
     } catch { /* handled */ } finally {
       setChangingMode(false);
+    }
+  };
+
+  const handleTestAI = async () => {
+    setTestingAI(true);
+    setAiTestResult(null);
+    try {
+      // Create a test job
+      const jobRes = await createJob({
+        job_type: "manual_analysis",
+        input: { symbol: "GOLD", timeframe: "M15", test: true },
+      });
+      const jobId = jobRes.data.id;
+      setAiTestResult({ status: "waiting", message: `Job #${jobId} created — waiting for agent runner...` });
+
+      // Poll for completion (max 60s)
+      const start = Date.now();
+      while (Date.now() - start < 60000) {
+        await new Promise((r) => setTimeout(r, 3000));
+        try {
+          const check = await getJob(jobId);
+          const job = check.data;
+          if (job.status === "completed") {
+            const output = job.output || {};
+            setAiTestResult({
+              status: "ok",
+              message: "AI Agent responded!",
+              detail: output.decision || output.message || JSON.stringify(output).slice(0, 300),
+              duration_s: job.duration_ms ? job.duration_ms / 1000 : undefined,
+            });
+            setTestingAI(false);
+            await fetchRunners();
+            return;
+          } else if (job.status === "failed") {
+            setAiTestResult({
+              status: "error",
+              message: "Job failed",
+              detail: job.error || "Unknown error",
+            });
+            setTestingAI(false);
+            return;
+          }
+          // still pending/running — keep polling
+          setAiTestResult({
+            status: "waiting",
+            message: `Job #${jobId} ${job.status}...`,
+          });
+        } catch {
+          // poll error, keep trying
+        }
+      }
+      setAiTestResult({
+        status: "error",
+        message: "Timeout — agent runner may not be running on your Mac",
+        detail: "Run: cd ~/Documents/gold-trading-bot && ./scripts/run_agent.sh",
+      });
+    } catch (err: unknown) {
+      const msg = err && typeof err === "object" && "response" in err
+        ? (err as { response: { data?: { detail?: string } } }).response?.data?.detail
+        : "Failed to create test job";
+      setAiTestResult({ status: "error", message: msg || "Error" });
+    } finally {
+      setTestingAI(false);
     }
   };
 
@@ -414,6 +488,13 @@ export default function RunnersPage() {
               <option value="live">Live</option>
             </select>
             <button
+              onClick={handleTestAI}
+              disabled={testingAI}
+              className="text-xs px-3 py-1.5 rounded border border-green-500/30 bg-green-500/10 text-green-400 hover:bg-green-500/20 disabled:opacity-50"
+            >
+              {testingAI ? "Testing..." : "Test AI Agent"}
+            </button>
+            <button
               onClick={handleCheckReadiness}
               className="text-xs px-3 py-1.5 rounded border border-border hover:bg-accent text-muted-foreground hover:text-foreground"
             >
@@ -428,6 +509,33 @@ export default function RunnersPage() {
           </div>
         </div>
       </div>
+
+      {/* AI Test Result */}
+      {aiTestResult && (
+        <div className={`rounded-lg border p-4 ${
+          aiTestResult.status === "ok" ? "border-green-500/30 bg-green-500/5" :
+          aiTestResult.status === "error" ? "border-red-500/30 bg-red-500/5" :
+          "border-yellow-500/30 bg-yellow-500/5"
+        }`}>
+          <div className="flex items-center justify-between mb-1">
+            <span className={`text-sm font-medium ${
+              aiTestResult.status === "ok" ? "text-green-400" :
+              aiTestResult.status === "error" ? "text-red-400" :
+              "text-yellow-400"
+            }`}>
+              {aiTestResult.status === "ok" ? "AI Agent Working" :
+               aiTestResult.status === "error" ? "AI Agent Error" :
+               "Waiting for Agent..."}
+              {aiTestResult.duration_s != null && ` (${aiTestResult.duration_s.toFixed(1)}s)`}
+            </span>
+            <button onClick={() => setAiTestResult(null)} className="text-xs text-muted-foreground hover:text-foreground">Close</button>
+          </div>
+          <p className="text-xs text-muted-foreground">{aiTestResult.message}</p>
+          {aiTestResult.detail && (
+            <pre className="mt-2 text-xs bg-background rounded p-2 max-h-32 overflow-auto whitespace-pre-wrap">{aiTestResult.detail}</pre>
+          )}
+        </div>
+      )}
 
       {/* Deploy Readiness Panel */}
       {showReadiness && readiness && (
