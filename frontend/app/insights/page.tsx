@@ -51,7 +51,7 @@ export default function InsightsPage() {
   };
 
   const chartData = [...history].reverse().map((h) => ({
-    time: new Date(h.created_at).toLocaleDateString("en", { month: "short", day: "numeric", hour: "2-digit" }),
+    time: new Date(h.created_at).toLocaleDateString("en-GB", { timeZone: "Asia/Bangkok", month: "short", day: "numeric", hour: "2-digit" }),
     score: h.sentiment_score,
   }));
 
@@ -105,7 +105,7 @@ export default function InsightsPage() {
                 )}
 
                 <p className="text-[11px] text-muted-foreground/60 text-center font-medium">
-                  Updated: {new Date(sentiment.analyzed_at).toLocaleString()}
+                  Updated: {new Date(sentiment.analyzed_at).toLocaleString("en-GB", { timeZone: "Asia/Bangkok" })}
                 </p>
               </>
             ) : (

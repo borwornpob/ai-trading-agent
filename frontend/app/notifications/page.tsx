@@ -99,7 +99,7 @@ export default function NotificationsPage() {
               {events.map((e) => (
                 <tr key={e.id} className="border-b border-border/50">
                   <td className="py-2 pr-4 whitespace-nowrap text-muted-foreground">
-                    {new Date(e.created_at).toLocaleString()}
+                    {new Date(e.created_at).toLocaleString("en-GB", { timeZone: "Asia/Bangkok" })}
                   </td>
                   <td className={`py-2 pr-4 whitespace-nowrap font-medium ${EVENT_COLORS[e.type] || ""}`}>
                     {e.type.replace(/_/g, " ")}

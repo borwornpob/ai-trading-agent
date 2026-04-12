@@ -33,28 +33,27 @@ const CATEGORY_CONFIG: Record<string, { label: string; color: string; dot: strin
   optimization: { label: "Optimization", color: "text-purple-400", dot: "bg-purple-400", bg: "bg-purple-500/10" },
   risk:         { label: "Risk",         color: "text-red-400",    dot: "bg-red-400",    bg: "bg-red-500/10" },
   error:        { label: "Error",        color: "text-red-400",    dot: "bg-red-400",    bg: "bg-red-500/10" },
-  system:       { label: "System",       color: "text-zinc-400",   dot: "bg-zinc-400",   bg: "bg-zinc-500/10" },
 };
 
-const CATEGORIES = ["", "trade", "signal", "sentiment", "optimization", "risk", "error", "system"];
+const CATEGORIES = ["", "trade", "signal", "sentiment", "optimization", "risk"];
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
-function timeAgo(iso: string): string {
-  const diff = Date.now() - new Date(iso).getTime();
-  const mins = Math.floor(diff / 60000);
-  if (mins < 1) return "just now";
-  if (mins < 60) return `${mins}m ago`;
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  return `${days}d ago`;
+const TH_TZ = "Asia/Bangkok";
+
+function formatTimeTH(iso: string): string {
+  return new Date(iso).toLocaleString("en-GB", {
+    timeZone: TH_TZ,
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
 
-function formatTime(iso: string): string {
+function formatDateTimeTH(iso: string): string {
   return new Date(iso).toLocaleString("en-GB", {
-    month: "short",
+    timeZone: TH_TZ,
     day: "numeric",
+    month: "short",
     hour: "2-digit",
     minute: "2-digit",
   });
@@ -92,10 +91,11 @@ export default function ActivityPage() {
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
-  // Group items by date
+  // Group items by date (Thai timezone)
   const grouped: Record<string, ActivityItem[]> = {};
   for (const item of items) {
     const dateKey = new Date(item.timestamp).toLocaleDateString("en-GB", {
+      timeZone: TH_TZ,
       weekday: "long",
       month: "long",
       day: "numeric",
@@ -108,7 +108,7 @@ export default function ActivityPage() {
       <PageHeader title="AI Activity" subtitle="Timeline of AI decisions, analyses, and actions">
         <div className="flex items-center gap-2">
           <span className="text-xs text-muted-foreground">
-            {lastRefresh.toLocaleTimeString()}
+            {lastRefresh.toLocaleTimeString("en-GB", { timeZone: TH_TZ })}
           </span>
           <button
             type="button"
@@ -141,6 +141,7 @@ export default function ActivityPage() {
       {/* Filters */}
       <div className="flex flex-wrap gap-3">
         <select
+          aria-label="Time range"
           value={days}
           onChange={(e) => setDays(Number(e.target.value))}
           className="rounded-lg border border-border bg-background px-3 py-2 text-sm"
@@ -153,6 +154,7 @@ export default function ActivityPage() {
         </select>
 
         <select
+          aria-label="Category filter"
           value={category}
           onChange={(e) => setCategory(e.target.value)}
           className="rounded-lg border border-border bg-background px-3 py-2 text-sm"
@@ -208,8 +210,8 @@ export default function ActivityPage() {
                             </p>
                           </div>
                           <div className="text-right shrink-0">
-                            <p className="text-xs text-muted-foreground">{timeAgo(item.timestamp)}</p>
-                            <p className="text-[10px] text-muted-foreground/50 mt-0.5">{formatTime(item.timestamp)}</p>
+                            <p className="text-xs text-muted-foreground">{formatTimeTH(item.timestamp)}</p>
+                            <p className="text-[10px] text-muted-foreground/50 mt-0.5">{formatDateTimeTH(item.timestamp)}</p>
                           </div>
                         </div>
                       </div>

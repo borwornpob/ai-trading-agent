@@ -155,7 +155,7 @@ export default function HistoryPage() {
                       {trades.map((t) => (
                         <TableRow key={t.id} className="hover:bg-muted/30 transition-colors">
                           <TableCell className="text-muted-foreground text-xs font-medium">
-                            {new Date(t.open_time).toLocaleDateString()}
+                            {new Date(t.open_time).toLocaleDateString("en-GB", { timeZone: "Asia/Bangkok" })}
                           </TableCell>
                           <TableCell className="font-medium text-xs">{t.symbol}</TableCell>
                           <TableCell
@@ -220,7 +220,7 @@ export default function HistoryPage() {
                       .sort((a, b) => new Date(a.close_time!).getTime() - new Date(b.close_time!).getTime())
                       .reduce<{ date: string; pnl: number }[]>((acc, t) => {
                         const prev = acc.length > 0 ? acc[acc.length - 1].pnl : 0;
-                        acc.push({ date: new Date(t.close_time!).toLocaleDateString(), pnl: prev + (t.profit ?? 0) });
+                        acc.push({ date: new Date(t.close_time!).toLocaleDateString("en-GB", { timeZone: "Asia/Bangkok" }), pnl: prev + (t.profit ?? 0) });
                         return acc;
                       }, [])}
                   >

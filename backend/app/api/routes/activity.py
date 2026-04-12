@@ -15,24 +15,18 @@ from app.db.session import get_db
 router = APIRouter(prefix="/api/ai/activity", tags=["activity"])
 
 
-def _categorize_event(event_type: str) -> str:
-    """Map BotEventType to display category."""
-    mapping = {
-        "TRADE_OPENED": "trade",
-        "TRADE_CLOSED": "trade",
-        "SIGNAL_DETECTED": "signal",
-        "TRADE_BLOCKED": "signal",
-        "SENTIMENT_CHANGE": "sentiment",
-        "OPTIMIZATION_RUN": "optimization",
-        "CIRCUIT_BREAKER": "risk",
-        "ORDER_FAILED": "error",
-        "ERROR": "error",
-        "STARTED": "system",
-        "STOPPED": "system",
-        "SETTINGS_CHANGED": "system",
-        "STRATEGY_CHANGED": "system",
-    }
-    return mapping.get(event_type, "system")
+# AI-relevant event types only — excludes system start/stop/settings
+_AI_EVENT_MAP: dict[str, str] = {
+    "TRADE_OPENED": "trade",
+    "TRADE_CLOSED": "trade",
+    "SIGNAL_DETECTED": "signal",
+    "TRADE_BLOCKED": "signal",
+    "SENTIMENT_CHANGE": "sentiment",
+    "OPTIMIZATION_RUN": "optimization",
+    "CIRCUIT_BREAKER": "risk",
+    "ORDER_FAILED": "error",
+    "STRATEGY_CHANGED": "optimization",
+}
 
 
 @router.get("", dependencies=[Depends(require_auth)])
@@ -45,14 +39,22 @@ async def get_activity_log(
     """Unified AI activity timeline from multiple data sources."""
     cutoff = datetime.utcnow() - timedelta(days=days)
 
-    # 1. Bot events (signals, trades, blocks, errors, system)
-    events_q = select(BotEvent).where(BotEvent.created_at >= cutoff).order_by(desc(BotEvent.created_at)).limit(500)
+    # 1. Bot events — AI-relevant only (no system start/stop)
+    ai_event_types = list(_AI_EVENT_MAP.keys())
+    events_q = (
+        select(BotEvent)
+        .where(BotEvent.created_at >= cutoff, BotEvent.event_type.in_(ai_event_types))
+        .order_by(desc(BotEvent.created_at))
+        .limit(500)
+    )
     events_result = await db.execute(events_q)
     bot_events = events_result.scalars().all()
 
     items: list[dict] = []
     for e in bot_events:
-        cat = _categorize_event(e.event_type.value)
+        cat = _AI_EVENT_MAP.get(e.event_type.value)
+        if not cat:
+            continue
         if category and cat != category:
             continue
         items.append({
