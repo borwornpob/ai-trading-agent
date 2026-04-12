@@ -244,7 +244,19 @@ class BotScheduler:
         await self._run_ai_agent(symbols)
 
     async def _sentiment_job(self):
-        """Fetch news sentiment regardless of bot state — news comes out 24/7."""
+        """Fetch news sentiment regardless of bot state — news comes out 24/7.
+
+        Runs every 15 min on weekdays, but skips 3 out of 4 runs on weekends
+        (effectively hourly) to save API cost.
+        """
+        from datetime import datetime
+        now = datetime.utcnow()
+        is_weekend = now.weekday() >= 5  # Saturday=5, Sunday=6
+        if is_weekend and now.minute not in (2,):
+            # On weekends, only run at :02 past each hour (skip :17, :32, :47)
+            logger.debug("Sentiment job skipped (weekend, hourly mode)")
+            return
+
         logger.debug("Sentiment job triggered")
         tasks = [e.fetch_and_analyze_sentiment() for e in self._engines.values()]
         if tasks:
