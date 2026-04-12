@@ -136,40 +136,44 @@ async def lifespan(app: FastAPI):
     else:
         logger.info("FRED macro data disabled (no FRED_API_KEY)")
 
-    # Initialize Runner Manager
-    from app.runner.backend import ProcessRunnerBackend
-    from app.runner.heartbeat import RunnerHeartbeatMonitor
-    from app.runner.job_queue import JobQueue
-    from app.runner.manager import RunnerManager
-    from app.vault import vault
+    # Initialize Runner Manager (non-fatal: app works without it if tables don't exist yet)
+    try:
+        from app.runner.backend import ProcessRunnerBackend
+        from app.runner.heartbeat import RunnerHeartbeatMonitor
+        from app.runner.job_queue import JobQueue
+        from app.runner.manager import RunnerManager
+        from app.vault import vault
 
-    runner_backend = ProcessRunnerBackend()
-    runner_db_session = async_session()
-    runner_manager = RunnerManager(runner_db_session, redis_client, runner_backend, vault)
-    job_queue = JobQueue(runner_db_session, redis_client)
-    heartbeat_monitor = RunnerHeartbeatMonitor(
-        runner_manager,
-        interval_seconds=settings.runner_heartbeat_interval,
-        max_misses=settings.runner_heartbeat_max_misses,
-    )
+        runner_backend = ProcessRunnerBackend()
+        runner_db_session = async_session()
+        runner_manager = RunnerManager(runner_db_session, redis_client, runner_backend, vault)
+        job_queue = JobQueue(runner_db_session, redis_client)
+        heartbeat_monitor = RunnerHeartbeatMonitor(
+            runner_manager,
+            interval_seconds=settings.runner_heartbeat_interval,
+            max_misses=settings.runner_heartbeat_max_misses,
+        )
 
-    # Rebuild job queue from DB on startup
-    await job_queue.rebuild_from_db()
+        # Rebuild job queue from DB on startup
+        await job_queue.rebuild_from_db()
 
-    # Add heartbeat check to scheduler
-    scheduler.scheduler.add_job(
-        heartbeat_monitor.check_all,
-        "interval",
-        seconds=settings.runner_heartbeat_interval,
-        id="runner_heartbeat",
-        replace_existing=True,
-    )
+        # Add heartbeat check to scheduler
+        scheduler.scheduler.add_job(
+            heartbeat_monitor.check_all,
+            "interval",
+            seconds=settings.runner_heartbeat_interval,
+            id="runner_heartbeat",
+            replace_existing=True,
+        )
 
-    app.state.runner_manager = runner_manager
-    app.state.job_queue = job_queue
-    app.state.heartbeat_monitor = heartbeat_monitor
+        app.state.runner_manager = runner_manager
+        app.state.job_queue = job_queue
+        app.state.heartbeat_monitor = heartbeat_monitor
 
-    logger.info("Runner manager initialized")
+        logger.info("Runner manager initialized")
+    except Exception as e:
+        logger.warning(f"Runner manager init failed (non-fatal): {e}")
+        logger.warning("Runner features disabled — run 'alembic upgrade head' to create runner tables")
 
     symbols = manager.get_symbols()
     logger.info(f"Trading Bot initialized — symbols: {symbols}")
@@ -178,8 +182,10 @@ async def lifespan(app: FastAPI):
 
     # Shutdown
     logger.info("Shutting down...")
-    await runner_manager.shutdown()
-    await runner_db_session.close()
+    if hasattr(app.state, "runner_manager"):
+        await app.state.runner_manager.shutdown()
+    if "runner_db_session" in dir():
+        await runner_db_session.close()
     scheduler.stop()
     await manager.stop()
     await connector.close()
