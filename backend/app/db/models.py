@@ -291,7 +291,8 @@ class Runner(Base):
     container_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     image: Mapped[str] = mapped_column(String(200))
     status: Mapped[RunnerStatus] = mapped_column(
-        Enum(RunnerStatus), default=RunnerStatus.STOPPED
+        Enum(RunnerStatus, values_callable=lambda e: [x.value for x in e]),
+        default=RunnerStatus.STOPPED,
     )
     max_concurrent_jobs: Mapped[int] = mapped_column(Integer, default=3)
     tags: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
@@ -309,7 +310,8 @@ class RunnerJob(Base):
     runner_id: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
     job_type: Mapped[str] = mapped_column(String(50))
     status: Mapped[JobStatus] = mapped_column(
-        Enum(JobStatus), default=JobStatus.PENDING
+        Enum(JobStatus, values_callable=lambda e: [x.value for x in e]),
+        default=JobStatus.PENDING,
     )
     input: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
     output: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
