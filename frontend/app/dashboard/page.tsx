@@ -15,6 +15,7 @@ import {
 import {
   Wallet, TrendingUp, Layers, Activity, Play, Square, ShieldAlert, Wifi, WifiOff, DollarSign,
 } from "lucide-react";
+import Markdown from "react-markdown";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { PageInstructions } from "@/components/layout/PageInstructions";
 import { StatCard } from "@/components/ui/stat-card";
@@ -382,7 +383,9 @@ export default function DashboardPage() {
                   <span className="text-xs font-semibold text-primary">AI Decision</span>
                   <span className="text-xs text-muted-foreground">{status.ai_decision.duration_s}s</span>
                 </div>
-                <p className="text-xs text-foreground leading-relaxed">{status.ai_decision.decision?.slice(0, 200)}</p>
+                <div className="text-xs text-foreground leading-relaxed max-w-none [&_h2]:text-[11px] [&_h2]:font-bold [&_h2]:mt-1.5 [&_h2]:mb-0.5 [&_h3]:text-[11px] [&_h3]:font-semibold [&_h3]:mt-1 [&_h3]:mb-0.5 [&_p]:my-0.5 [&_ul]:my-0.5 [&_ul]:pl-3 [&_ul]:list-disc [&_li]:my-0 [&_strong]:text-primary">
+                  <Markdown>{status.ai_decision.decision?.slice(0, 300)}</Markdown>
+                </div>
                 <div className="flex items-center gap-2 text-xs text-muted-foreground">
                   <span className="bg-primary/10 px-1.5 py-0.5 rounded text-primary font-medium">
                     {status.ai_decision.strategy?.replace(/_/g, " ")}
