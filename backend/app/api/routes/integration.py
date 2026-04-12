@@ -1,5 +1,8 @@
 """Integration Status API — test connectivity, config management via Vault."""
 
+import os
+import shutil
+import subprocess
 import time
 
 import httpx
@@ -290,3 +293,98 @@ async def get_integration_config(db: AsyncSession = Depends(get_db)):
             },
         ]
     }
+
+
+@router.get("/diag/claude-cli")
+async def diagnose_claude_cli():
+    """Diagnose Claude CLI availability and auth — helps debug SDK agent failures."""
+    result: dict = {"checks": []}
+
+    # 1. Check claude binary
+    claude_path = shutil.which("claude")
+    result["checks"].append({
+        "name": "claude_binary",
+        "ok": claude_path is not None,
+        "detail": claude_path or "NOT FOUND in PATH",
+    })
+
+    # 2. Check node
+    node_path = shutil.which("node")
+    result["checks"].append({
+        "name": "node_binary",
+        "ok": node_path is not None,
+        "detail": node_path or "NOT FOUND",
+    })
+
+    # 3. Check token env
+    token = os.environ.get("CLAUDE_CODE_OAUTH_TOKEN", "")
+    has_space = " " in token
+    result["checks"].append({
+        "name": "oauth_token",
+        "ok": bool(token) and not has_space,
+        "detail": f"set ({len(token)} chars, has_space={has_space})" if token else "NOT SET",
+    })
+
+    # 4. Check current user (must NOT be root)
+    uid = os.getuid()
+    result["checks"].append({
+        "name": "non_root_user",
+        "ok": uid != 0,
+        "detail": f"uid={uid} user={os.environ.get('USER', 'unknown')}",
+    })
+
+    # 5. Try running claude --version
+    if claude_path:
+        try:
+            proc = subprocess.run(
+                [claude_path, "--version"],
+                capture_output=True, text=True, timeout=10,
+            )
+            result["checks"].append({
+                "name": "claude_version",
+                "ok": proc.returncode == 0,
+                "detail": (proc.stdout.strip() or proc.stderr.strip())[:200],
+            })
+        except Exception as e:
+            result["checks"].append({
+                "name": "claude_version",
+                "ok": False,
+                "detail": str(e)[:200],
+            })
+
+    # 6. Try a minimal SDK query
+    try:
+        from claude_agent_sdk import query, ClaudeAgentOptions, AssistantMessage
+        from claude_agent_sdk.types import TextBlock
+
+        stderr_out: list[str] = []
+        text_out: list[str] = []
+        async for msg in query(
+            prompt="Reply with exactly: OK",
+            options=ClaudeAgentOptions(
+                max_turns=1,
+                model="claude-haiku-4-5-20251001",
+                permission_mode="bypassPermissions",
+                stderr=lambda line: stderr_out.append(line),
+            ),
+        ):
+            if isinstance(msg, AssistantMessage):
+                for block in msg.content:
+                    if isinstance(block, TextBlock):
+                        text_out.append(block.text)
+
+        result["checks"].append({
+            "name": "sdk_query",
+            "ok": bool(text_out),
+            "detail": "".join(text_out)[:200] or "empty response",
+        })
+    except Exception as e:
+        result["checks"].append({
+            "name": "sdk_query",
+            "ok": False,
+            "detail": str(e)[:300],
+            "stderr": "".join(stderr_out[-5:])[:500] if stderr_out else "empty",
+        })
+
+    result["all_ok"] = all(c["ok"] for c in result["checks"])
+    return result
