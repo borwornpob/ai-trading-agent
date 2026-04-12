@@ -248,27 +248,23 @@ class BotScheduler:
             await asyncio.gather(*tasks, return_exceptions=True)
 
     async def _push_agent_jobs(self, symbols: list[str]):
-        """Push candle_analysis jobs to Redis queue for AI agent runner."""
+        """Run AI agent analysis directly for each symbol."""
         try:
-            import json
-            import redis.asyncio as redis_lib
-            from app.config import settings
-
-            redis_client = redis_lib.from_url(settings.redis_url)
+            from mcp_server.agent_config import run_agent
             for sym in symbols:
                 engine = self._engines.get(sym)
                 if engine and engine.state.value == "RUNNING":
-                    job = json.dumps({
-                        "job_id": int(asyncio.get_event_loop().time() * 1000) % 1000000,
-                        "runner_id": 1,
-                        "job_type": "candle_analysis",
-                        "input": {"symbol": sym, "timeframe": engine._timeframe},
-                    })
-                    await redis_client.lpush("runner:jobs:pending", job)
-                    logger.debug(f"AI agent job pushed for {sym}")
-            await redis_client.aclose()
-        except Exception as e:
-            logger.debug(f"Agent job push skipped: {e}")
+                    try:
+                        result = await run_agent(
+                            job_type="candle_analysis",
+                            job_input={"symbol": sym, "timeframe": engine._timeframe},
+                        )
+                        decision = result.get("decision", "HOLD")
+                        logger.info(f"AI agent [{sym}]: {decision[:100]}")
+                    except Exception as e:
+                        logger.warning(f"AI agent [{sym}] error: {e}")
+        except ImportError:
+            logger.debug("AI agent not available (mcp_server not importable)")
 
     async def _sync_job(self):
         tasks = [e.sync_positions() for e in self._engines.values() if e.state.value == "RUNNING"]

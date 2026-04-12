@@ -26,6 +26,7 @@ from app.api.routes import (
     market_data,
     ml,
     positions,
+    integration,
     rollout,
     runners,
     secrets,
@@ -244,6 +245,7 @@ app.include_router(secrets.router)
 app.include_router(runners.router)
 app.include_router(jobs.router)
 app.include_router(rollout.router)
+app.include_router(integration.router)
 app.include_router(ws_router)
 app.include_router(ws_runners_router)
 

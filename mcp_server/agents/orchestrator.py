@@ -115,17 +115,16 @@ async def run_multi_agent(
 
     # ─── Phase 1: Run specialists in parallel ────────────────────────────
 
-    # Run specialists sequentially (SDK doesn't support concurrent subprocess queries)
-    specialist_order = [
-        ("technical", lambda: technical_analyst.analyze(symbol, timeframe)),
-        ("fundamental", lambda: fundamental_analyst.analyze(symbol, timeframe)),
-        ("risk", lambda: risk_analyst.analyze(symbol, timeframe=timeframe)),
-    ]
+    # Run all specialists in parallel (Anthropic API supports concurrent calls)
+    specialist_tasks = {
+        "technical": asyncio.create_task(technical_analyst.analyze(symbol, timeframe)),
+        "fundamental": asyncio.create_task(fundamental_analyst.analyze(symbol, timeframe)),
+        "risk": asyncio.create_task(risk_analyst.analyze(symbol, timeframe=timeframe)),
+    }
 
-    for name, run_fn in specialist_order:
+    for name, task in specialist_tasks.items():
         try:
-            logger.info(f"[Orchestrator] Running {name} analyst...")
-            results[name] = await run_fn()
+            results[name] = await task
         except Exception as e:
             logger.error(f"[Orchestrator] {name} analyst failed: {e}")
             specialist_errors[name] = str(e)

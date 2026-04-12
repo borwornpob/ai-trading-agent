@@ -18,8 +18,7 @@ import {
   Moon,
   TrendingUp,
   Bell,
-  KeyRound,
-  Server,
+  Plug,
   LogOut,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
@@ -34,8 +33,7 @@ const navItems = [
   { href: "/ml", label: "ML Model", icon: Cpu },
   { href: "/macro", label: "Macro Data", icon: Globe },
   { href: "/notifications", label: "Notifications", icon: Bell },
-  { href: "/secrets", label: "Secrets", icon: KeyRound },
-  { href: "/runners", label: "Runners", icon: Server },
+  { href: "/integration", label: "Integration", icon: Plug },
 ];
 
 function ThemeToggle() {

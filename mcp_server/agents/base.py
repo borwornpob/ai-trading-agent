@@ -1,33 +1,17 @@
 """
-Base agent — shared agent loop used by all specialist agents and the orchestrator.
+Base agent — shared agent loop using Anthropic Messages API with tool_use.
 
-Uses Claude Code SDK (claude-code-sdk) which authenticates via Claude Max
-subscription through the CLI. No API key needed.
+All specialist agents and the orchestrator use run_agent_loop().
 """
 
+import asyncio
 import json
+import os
 import time
 from typing import Any
 
+from anthropic import AsyncAnthropic
 from loguru import logger
-
-from mcp_server.sdk_tools import create_trading_mcp_server, filter_sdk_tools
-
-# Lazy import to handle missing SDK gracefully
-_SDK_AVAILABLE = False
-try:
-    from claude_code_sdk import (
-        query as sdk_query,
-        ClaudeCodeOptions,
-        AssistantMessage,
-        ResultMessage,
-        TextBlock,
-        ToolUseBlock,
-    )
-    from claude_code_sdk._errors import MessageParseError
-    _SDK_AVAILABLE = True
-except ImportError:
-    pass
 
 
 # ─── Model Constants ─────────────────────────────────────────────────────────
@@ -36,128 +20,116 @@ MODEL_ORCHESTRATOR = "claude-sonnet-4-20250514"
 MODEL_SPECIALIST = "claude-haiku-4-5-20251001"
 
 
+def _get_api_key() -> str | None:
+    return os.environ.get("ANTHROPIC_API_KEY", "")
+
+
 # ─── Shared Agent Loop ──────────────────────────────────────────────────────
 
 async def run_agent_loop(
     system_prompt: str,
     user_message: str,
-    tools: list | None = None,
+    tools: list[dict[str, Any]] | None = None,
     tool_names: list[str] | None = None,
     model: str = MODEL_SPECIALIST,
     max_turns: int = 15,
     timeout: int = 120,
     **kwargs,
 ) -> dict:
-    """Run an agent loop using Claude Code SDK.
+    """Run an agent loop using Anthropic Messages API.
 
     Args:
-        system_prompt: Agent's system prompt (role definition)
-        user_message: The task/query for the agent
-        tools: List of SDK tool objects (from sdk_tools.py)
-        tool_names: Alternative: list of tool names to filter from ALL_SDK_TOOLS
+        system_prompt: Agent's system prompt
+        user_message: The task/query
+        tools: Tool definitions (JSON schema format for Messages API)
+        tool_names: Alternative: filter tools from TOOLS by name
         model: Claude model to use
-        max_turns: Maximum conversation turns
+        max_turns: Maximum turns
         timeout: Timeout in seconds
 
     Returns:
-        Dict with response text, tool calls made, and metadata.
+        Dict with response, tool_calls, turns, duration_s.
     """
-    if not _SDK_AVAILABLE:
-        return {"response": "Claude Code SDK not available", "tool_calls": [], "turns": 0}
+    api_key = _get_api_key()
+    if not api_key:
+        return {"response": "No ANTHROPIC_API_KEY configured", "tool_calls": [], "turns": 0}
 
-    # Build tools list
+    # Resolve tools by name if needed
     if tools is None and tool_names is not None:
-        tools = filter_sdk_tools(tool_names)
+        from mcp_server.agent_config import get_tools_by_name
+        tools = get_tools_by_name(tool_names)
 
-    # Build MCP server with selected tools
-    mcp_server = create_trading_mcp_server(tools)
-
-    # Build allowed tool names for SDK
-    allowed = [t.name for t in (tools or [])]
-
-    options = ClaudeCodeOptions(
-        system_prompt=system_prompt,
-        model=model,
-        max_turns=max_turns,
-        mcp_servers={"trading": mcp_server},
-        allowed_tools=allowed if allowed else None,
-        permission_mode="bypassPermissions",
-    )
-
+    client = AsyncAnthropic(api_key=api_key)
+    messages: list[dict] = [{"role": "user", "content": user_message}]
     tool_calls_made: list[dict] = []
-    final_text = ""
-    turns = 0
     start_time = time.time()
-    max_retries = 3
 
-    for attempt in range(max_retries):
+    for turn in range(max_turns):
+        if time.time() - start_time > timeout:
+            logger.warning(f"Agent timeout after {timeout}s")
+            break
+
         try:
-            async for msg in sdk_query(prompt=user_message, options=options):
-                elapsed = time.time() - start_time
-                if elapsed > timeout:
-                    logger.warning(f"Agent timeout after {elapsed:.0f}s")
-                    break
+            kwargs_api: dict = {
+                "model": model,
+                "max_tokens": 4096,
+                "system": system_prompt,
+                "messages": messages,
+            }
+            if tools:
+                kwargs_api["tools"] = tools
 
-                msg_type = getattr(msg, "type", "")
-                if msg_type == "assistant":
-                    turns += 1
-                    for block in getattr(msg, "content", []):
-                        block_type = getattr(block, "type", "")
-                        if block_type == "text" and hasattr(block, "text"):
-                            final_text = block.text
-                        elif block_type == "tool_use" and hasattr(block, "name"):
-                            tool_calls_made.append({
-                                "tool": block.name,
-                                "input": getattr(block, "input", {}),
-                            })
-                            logger.info(f"[Agent] Tool: {block.name}")
-
-                elif msg_type == "result":
-                    if hasattr(msg, "result") and msg.result:
-                        final_text = msg.result
-                    turns = getattr(msg, "num_turns", turns)
-                    break
-
-            # If we got a response, don't retry
-            if final_text:
-                break
-
+            response = await client.messages.create(**kwargs_api)
         except Exception as e:
-            err_str = str(e)
-            root_cause = e
-            if hasattr(e, "exceptions"):
-                root_cause = e.exceptions[0] if e.exceptions else e
-                err_str = str(root_cause)
+            logger.error(f"Claude API error: {e}")
+            return {
+                "response": f"API error: {e}",
+                "tool_calls": tool_calls_made,
+                "turns": turn,
+                "error": str(e),
+            }
 
-            is_transport = "ProcessTransport" in err_str or "not ready for writing" in err_str
-            is_rate_limit = "rate_limit" in err_str.lower() or "MessageParseError" in type(root_cause).__name__
+        assistant_content = response.content
+        messages.append({"role": "assistant", "content": assistant_content})
 
-            if is_transport and attempt < max_retries - 1:
-                wait_s = (attempt + 1) * 5
-                logger.warning(f"SDK transport error (attempt {attempt + 1}/{max_retries}), retrying in {wait_s}s...")
-                import asyncio as _aio
-                await _aio.sleep(wait_s)
-                continue
-            elif is_rate_limit:
-                logger.warning(f"Rate limited — response may be partial: {err_str[:100]}")
-                break
-            else:
-                logger.error(f"Agent loop error: {err_str}")
-                return {
-                    "response": f"Agent error: {err_str}",
-                    "tool_calls": tool_calls_made,
-                    "turns": turns,
-                    "error": err_str,
-                }
+        # Done — no more tool calls
+        if response.stop_reason == "end_turn":
+            final_text = ""
+            for block in assistant_content:
+                if hasattr(block, "text"):
+                    final_text += block.text
+            return {
+                "response": final_text,
+                "tool_calls": tool_calls_made,
+                "turns": turn + 1,
+                "duration_s": round(time.time() - start_time, 1),
+            }
+
+        # Execute tool calls
+        tool_results = []
+        for block in assistant_content:
+            if block.type == "tool_use":
+                from mcp_server.agent_config import execute_tool
+                logger.info(f"[Agent] Tool: {block.name}")
+                result_str = await execute_tool(block.name, block.input)
+
+                tool_calls_made.append({
+                    "tool": block.name,
+                    "input": block.input,
+                    "output_preview": result_str[:200],
+                })
+                tool_results.append({
+                    "type": "tool_result",
+                    "tool_use_id": block.id,
+                    "content": result_str,
+                })
+
+        if tool_results:
+            messages.append({"role": "user", "content": tool_results})
 
     return {
-        "response": final_text,
+        "response": "Max turns reached",
         "tool_calls": tool_calls_made,
-        "turns": turns,
+        "turns": max_turns,
         "duration_s": round(time.time() - start_time, 1),
     }
-
-
-def filter_tools(tool_names: list[str]) -> list:
-    """Filter SDK tools by name (for backward compatibility)."""
-    return filter_sdk_tools(tool_names)

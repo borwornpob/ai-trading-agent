@@ -42,3 +42,4 @@ backend/models/
 # Logs
 *.log
 logs/
+gold_analysis_script.py
