@@ -310,7 +310,7 @@ async def _test_anthropic(token: str) -> dict:
         if resp.status_code == 200:
             return {"ok": True, "message": "Anthropic API key valid"}
 
-    return {"ok": False, "message": "Token invalid (not a valid API key, and SDK not available)"}
+    return {"ok": False, "message": "Cannot test: Claude Code SDK requires 'claude' CLI on this server. Agent runs locally, not on Railway."}
 
 
 async def _test_telegram(token: str) -> dict:

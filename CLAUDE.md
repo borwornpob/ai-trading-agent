@@ -63,8 +63,8 @@ Frontend (Next.js 16) → Backend (FastAPI) → MT5 Bridge (Windows VPS)
 | Backend | FastAPI 0.115, SQLAlchemy 2.0 (async), asyncpg, Redis, APScheduler |
 | Frontend | Next.js 16, React 19, Tailwind 4, Zustand, lightweight-charts |
 | ML | LightGBM, scikit-learn, pandas |
-| AI | Anthropic SDK (Claude Haiku sentiment + optimization) |
-| Auth | WebAuthn (py-webauthn) + JWT httpOnly cookie (migrating from password) |
+| AI | Claude Code SDK (Max subscription) + Anthropic SDK fallback |
+| Auth | JWT Bearer token (username/password) — WebAuthn code exists but disabled |
 | CI/CD | GitHub Actions (ruff, pytest, tsc, build), Railway auto-deploy |
 | DB | PostgreSQL 15, Redis 7 (AOF persistence) |
 
@@ -121,27 +121,18 @@ Frontend (Next.js 16) → Backend (FastAPI) → MT5 Bridge (Windows VPS)
 - **DEPLOY TODO**: `alembic upgrade head` to create runner tables
 - **DEPLOY TODO**: Install `psutil` (added to requirements.txt)
 
-### Phase C — Claude Agent Core (IN PROGRESS — MCP tools + guardrails done, agent config pending)
-- MCP Tool Server done: `mcp_server/` — FastMCP with 24 tools across 8 modules
-  - `tools/market_data.py` — get_tick, get_ohlcv, get_spread (wraps MT5BridgeConnector)
-  - `tools/indicators.py` — EMA, RSI, ATR, full_analysis (wraps strategy/indicators.py)
-  - `tools/risk.py` — validate_trade, calculate_lot, calculate_sl_tp (wraps risk/manager.py)
-  - `tools/broker.py` — place_order, modify_position, close_position, get_positions (GUARDRAIL-GATED)
-  - `tools/portfolio.py` — get_account, get_exposure, check_correlation
-  - `tools/sentiment.py` — get_latest_sentiment, history (queries backend API)
-  - `tools/history.py` — get_trade_history, get_daily_pnl, get_performance (queries backend API)
-  - `tools/journal.py` — log_decision, log_reasoning (audit trail)
-  - `server.py` — FastMCP server entry, registers all 24 tools
-- Guardrails done: `mcp_server/guardrails.py` — non-bypassable limits at broker tool level
-  - MAX_LOT=1.0, MAX_CONCURRENT=5, MAX_DAILY_LOSS=3%, MAX_TRADES_PER_HOUR=5
-  - Consecutive loss halt, min time between trades, spread check
-  - Agent call daily cap (200), Redis-backed state tracking
-- Agent config done: `mcp_server/agent_config.py` — agentic loop (Messages API + tool_use), 24 tool definitions + dispatch, MAX_AGENT_TURNS=50, AGENT_TIMEOUT=300s
-- System prompt done: `mcp_server/system_prompt.md` — trading philosophy, decision framework, OAuth handling
-- Agent entrypoint updated: `runner/agent_entrypoint.py` — auto-detects Claude token, runs full agent loop if available, falls back to stub
-- Dockerfile done: `Dockerfile.trading-agent` — Python 3.11-slim, non-root user, health check :8090, secrets injected at runtime
-- `requirements.txt` updated: anthropic>=0.94.0 (was 0.42.0)
-- Tests: 26 new (guardrails + risk tools), total 340 pass
+### Phase C — Claude Agent Core (DONE — code complete)
+- **Claude Code SDK**: Switched from Anthropic API to `claude-code-sdk` (Max subscription, no API key needed)
+  - `mcp_server/sdk_tools.py` — 36 SDK tool wrappers via `@tool` decorator + `create_sdk_mcp_server()`
+  - `mcp_server/agents/base.py` — `run_agent_loop()` uses `sdk_query()` from claude-code-sdk
+  - `mcp_server/agent_config.py` — simplified entry point, delegates to `run_agent_loop()`
+  - `backend/app/ai/client.py` — `complete_async()` tries SDK first, falls back to Anthropic API
+- MCP Tool modules (11): market_data, indicators, risk, broker, portfolio, sentiment, history, journal, learning, session, strategy_gen
+- Guardrails: `mcp_server/guardrails.py` — non-bypassable limits at broker tool level
+- System prompt: `mcp_server/system_prompt.md` — trading philosophy, decision framework
+- Agent entrypoint: auto-detects SDK availability, falls back to stub executor
+- Dockerfile: `Dockerfile.trading-agent` — Python 3.11-slim, non-root
+- Tests: 26 (guardrails + risk tools)
 
 ### Phase D — Multi-Agent Architecture (DONE — code complete)
 - Orchestrator (Sonnet) + Technical Analyst (Haiku) + Fundamental Analyst (Haiku) + Risk Analyst (Haiku)
@@ -202,11 +193,11 @@ railway vars set -s backend "KEY=value"  # set env var
 
 ## Important Patterns
 
-- **Auth**: Global `AuthMiddleware` in `main.py` enforces JWT cookie auth. If no passkey registered (`is_setup_complete=False`), middleware passes all requests through (backward compat). Old `require_auth` dependency still exists for legacy password auth. Tests bypass auth via `AUTH_PASSWORD_HASH=""` in conftest.py and don't include the middleware.
+- **Auth**: Using Bearer token auth (username/password). `AuthMiddleware` (WebAuthn) disabled in `main.py`. `require_auth` dependency checks `Authorization: Bearer <token>` header. Frontend stores token in localStorage. Tests bypass auth via `AUTH_PASSWORD_HASH=""` in conftest.py.
 - **DB session**: Shared session can get dirty — always `rollback()` before new operations in long-lived services
 - **SYMBOL_PROFILES**: Per-symbol config in config.py (timeframe, pip_value, SL/TP mults, ML defaults)
 - **Constants**: All magic numbers in `constants.py` — never hardcode
-- **Tests**: 413 tests, SQLite in-memory for DB, fakeredis, mock MT5 connector. Auth disabled via `os.environ["AUTH_PASSWORD_HASH"] = ""` in conftest.py. Runner: 148, Guardrails+MCP: 26, Multi-agent: 23, Phase E: 32, Phase F: 18. Total coverage of Phase B-F.
+- **Tests**: 411 tests, SQLite in-memory for DB, fakeredis, mock MT5 connector. Auth disabled via `os.environ["AUTH_PASSWORD_HASH"] = ""` in conftest.py. Runner: 148, Guardrails+MCP: 26, Multi-agent: 23, Phase E: 32, Phase F: 18. SDK mocks use `type` attribute instead of `isinstance`.
 - **Runner**: `RunnerManager` init in `main.py` lifespan. Uses `ProcessRunnerBackend` by default (Railway-compatible). Heartbeat monitor runs as APScheduler job. Job queue uses dual Redis+DB storage. Runner logs streamed via Redis pub/sub to WebSocket.
 - **Coverage**: CI threshold 25% (overall ~29%, critical paths ~89%)
 
@@ -215,6 +206,10 @@ railway vars set -s backend "KEY=value"  # set env var
 - MT5 Bridge frequently shows "stale tick" warnings (market closed or VPS connectivity)
 - Health monitor stays in degraded state when MT5 Bridge is offline (by design)
 - Shared db_session can cause `InFailedSQLTransactionError` — mitigated with rollback() calls
+- Runner tables migration: enum mismatch on first deploy (non-fatal, runner features disabled until `alembic upgrade head`)
+- DB datetime columns: must use `datetime.utcnow()` (naive), NOT `datetime.now(timezone.utc)` (offset-aware) — asyncpg rejects offset-aware for `TIMESTAMP WITHOUT TIME ZONE`
+- Claude Code SDK: `rate_limit_event` parse error on heavy usage — handled gracefully in `base.py`
+- WebAuthn passkey auth: disabled due to cross-origin cookie issues on Railway (`.up.railway.app` is public suffix). Code still exists but `AuthMiddleware` is commented out in `main.py`
 
 ## User Preferences (from memory)
 
