@@ -230,16 +230,8 @@ class BotScheduler:
 
     async def _candle_job(self, symbols: list[str]):
         logger.debug(f"Candle job triggered for {symbols}")
-        tasks = []
-        for sym in symbols:
-            engine = self._engines.get(sym)
-            if engine:
-                tasks.append(engine.process_candle())
-        if tasks:
-            await asyncio.gather(*tasks, return_exceptions=True)
-
-        # Push AI agent jobs to Redis queue for each symbol
-        await self._push_agent_jobs(symbols)
+        # AI Agent is the primary decision-maker (no rule-based strategies)
+        await self._run_ai_agent(symbols)
 
     async def _sentiment_job(self):
         logger.debug("Sentiment job triggered")
@@ -247,24 +239,45 @@ class BotScheduler:
         if tasks:
             await asyncio.gather(*tasks, return_exceptions=True)
 
-    async def _push_agent_jobs(self, symbols: list[str]):
-        """Run AI agent analysis directly for each symbol."""
+    async def _run_ai_agent(self, symbols: list[str]):
+        """Run AI agent for each symbol — the primary trading decision-maker."""
         try:
             from mcp_server.agent_config import run_agent
-            for sym in symbols:
-                engine = self._engines.get(sym)
-                if engine and engine.state.value == "RUNNING":
-                    try:
-                        result = await run_agent(
-                            job_type="candle_analysis",
-                            job_input={"symbol": sym, "timeframe": engine._timeframe},
-                        )
-                        decision = result.get("decision", "HOLD")
-                        logger.info(f"AI agent [{sym}]: {decision[:100]}")
-                    except Exception as e:
-                        logger.warning(f"AI agent [{sym}] error: {e}")
         except ImportError:
-            logger.debug("AI agent not available (mcp_server not importable)")
+            logger.warning("AI agent not available (mcp_server not importable)")
+            return
+
+        for sym in symbols:
+            engine = self._engines.get(sym)
+            if not engine or engine.state.value != "RUNNING":
+                continue
+            try:
+                result = await run_agent(
+                    job_type="candle_analysis",
+                    job_input={"symbol": sym, "timeframe": engine._timeframe},
+                )
+                decision = result.get("decision", "HOLD")
+                logger.info(f"AI agent [{sym}]: {decision[:200]}")
+
+                # Store last AI decision for dashboard display
+                engine._last_ai_decision = {
+                    "decision": decision[:500],
+                    "strategy": result.get("strategy_used", "ai_autonomous"),
+                    "turns": result.get("turns", 0),
+                    "tool_calls": len(result.get("tool_calls", [])),
+                    "duration_s": result.get("duration_s", 0),
+                }
+
+                # Publish to WebSocket for real-time dashboard update
+                await engine._push_event("bot_event", {
+                    "type": "AI_DECISION",
+                    "symbol": sym,
+                    "decision": decision[:300],
+                    "strategy": result.get("strategy_used", "ai_autonomous"),
+                    "turns": result.get("turns", 0),
+                })
+            except Exception as e:
+                logger.warning(f"AI agent [{sym}] error: {e}")
 
     async def _sync_job(self):
         tasks = [e.sync_positions() for e in self._engines.values() if e.state.value == "RUNNING"]

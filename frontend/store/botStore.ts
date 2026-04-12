@@ -32,6 +32,13 @@ type BotStatus = {
   use_ai_filter: boolean;
   paper_trade: boolean;
   sentiment?: Sentiment;
+  ai_decision?: {
+    decision: string;
+    strategy: string;
+    turns: number;
+    tool_calls: number;
+    duration_s: number;
+  };
 };
 
 type SymbolInfo = {

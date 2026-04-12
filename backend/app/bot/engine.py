@@ -211,19 +211,21 @@ class BotEngine:
         return result
 
     def get_status(self) -> dict:
+        ai_decision = getattr(self, "_last_ai_decision", None)
         return {
             "state": self.state.value,
-            "strategy": self.strategy.name,
-            "strategy_params": self.strategy.get_params(),
+            "strategy": "ai_autonomous",
+            "strategy_params": {},
             "symbol": self.symbol,
             "timeframe": self.timeframe,
             "started_at": self.started_at.isoformat() if self.started_at else None,
-            "use_ai_filter": self.risk_manager.use_ai_filter,
+            "use_ai_filter": True,
             "paper_trade": self.paper_trade,
             "max_risk_per_trade": self.risk_manager.max_risk_per_trade,
             "max_daily_loss": self.risk_manager.max_daily_loss,
             "max_concurrent_trades": self.risk_manager.max_concurrent_trades,
             "max_lot": self.risk_manager.max_lot,
+            "ai_decision": ai_decision,
         }
 
     async def process_candle(self):

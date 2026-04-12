@@ -157,8 +157,18 @@ async def run_agent(
         max_turns=MAX_AGENT_TURNS,
         timeout=AGENT_TIMEOUT,
     )
+    decision = result.get("response", "No decision")
+
+    # Extract strategy name from decision text
+    strategy_used = "ai_autonomous"
+    for keyword in ["Trend Following", "Mean Reversion", "Breakout", "Momentum", "Hold"]:
+        if keyword.lower() in decision.lower():
+            strategy_used = keyword.lower().replace(" ", "_")
+            break
+
     return {
-        "decision": result.get("response", "No decision"),
+        "decision": decision,
+        "strategy_used": strategy_used,
         "turns": result.get("turns", 0),
         "tool_calls": result.get("tool_calls", []),
         "duration_s": result.get("duration_s", 0),

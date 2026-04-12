@@ -358,14 +358,7 @@ export default function DashboardPage() {
                 />
               </div>
 
-              <div className="flex items-center justify-between">
-                <span className="text-sm text-muted-foreground font-medium">AI Filter</span>
-                <Switch
-                  checked={status?.use_ai_filter ?? true}
-                  onCheckedChange={handleAIFilterToggle}
-                />
               </div>
-            </div>
 
             {status?.paper_trade && (
               <p className="text-xs text-amber-600 dark:text-amber-400 bg-amber-100 dark:bg-amber-400/10 rounded-xl px-3 py-1.5 font-medium">
@@ -373,27 +366,28 @@ export default function DashboardPage() {
               </p>
             )}
 
+            {/* AI Decision Display */}
+            {status?.ai_decision && (
+              <div className="rounded-xl bg-primary/5 border border-primary/20 p-3 space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-semibold text-primary">AI Decision</span>
+                  <span className="text-xs text-muted-foreground">{status.ai_decision.duration_s}s</span>
+                </div>
+                <p className="text-xs text-foreground leading-relaxed">{status.ai_decision.decision?.slice(0, 200)}</p>
+                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <span className="bg-primary/10 px-1.5 py-0.5 rounded text-primary font-medium">
+                    {status.ai_decision.strategy?.replace(/_/g, " ")}
+                  </span>
+                  <span>{status.ai_decision.tool_calls} tools</span>
+                  <span>{status.ai_decision.turns} turns</span>
+                </div>
+              </div>
+            )}
+
             <div className="space-y-2 text-xs text-muted-foreground">
               <div className="flex items-center justify-between">
-                <span className="font-medium">Strategy</span>
-                <Select
-                  value={status?.strategy || "ema_crossover"}
-                  onValueChange={async (v) => {
-                    if (v) {
-                      await updateStrategy(v, undefined, activeSymbol);
-                      fetchData();
-                    }
-                  }}
-                >
-                  <SelectTrigger className="w-32 h-7 text-xs">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {["ema_crossover", "rsi_filter", "breakout", "ml_signal"].map((s) => (
-                      <SelectItem key={s} value={s}>{s.replace("_", " ")}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <span className="font-medium">Mode</span>
+                <span className="font-semibold text-primary">AI Autonomous</span>
               </div>
               <div className="flex justify-between">
                 <span className="font-medium">Symbol</span>
