@@ -156,6 +156,7 @@ class BotEngine:
         self._position_group: dict[int, list[int]] = {}  # parent ticket → add-on tickets
         self._position_partial_closed: set[int] = set()  # tickets that had partial TP taken
         self._position_breakeven: set[int] = set()  # tickets moved to breakeven
+        self._notified_orphans: set[int] = set()  # orphan tickets already notified
         self.started_at: datetime | None = None
         self.last_signal_time: datetime | None = None
 
@@ -841,12 +842,29 @@ class BotEngine:
             )
             if result.get("success"):
                 new_ticket = result["data"]["ticket"]
+                actual_fill = result["data"].get("price", entry_price)
                 atr = self._position_atr.get(ticket, DEFAULT_ATR_FALLBACK)
                 atr_pct = self._position_atr_pct.get(ticket, DEFAULT_ATR_PCT_FALLBACK)
                 self._position_atr[new_ticket] = atr
                 self._position_atr_pct[new_ticket] = atr_pct
                 self._position_entry_time[new_ticket] = _naive_utc()
                 self._position_breakeven.add(new_ticket)  # already at breakeven
+
+                # Save reopened position to DB
+                trade = Trade(
+                    ticket=new_ticket,
+                    symbol=self.symbol,
+                    type=pos_type,
+                    lot=new_lot,
+                    open_price=actual_fill,
+                    expected_price=entry_price,
+                    sl=be_sl,
+                    tp=current_tp,
+                    open_time=_naive_utc(),
+                    strategy_name=f"partial_tp_from_{ticket}",
+                )
+                await self._save_trade(trade)
+
                 logger.info(f"Partial TP {pos_type} {ticket}: closed, reopened {new_ticket} @ lot={new_lot}")
             else:
                 logger.warning(f"Partial TP reopen failed for {ticket}: {result.get('error')}")
@@ -1065,16 +1083,20 @@ class BotEngine:
 
             # 3. Orphan detection: in MT5 but not in DB
             orphans = mt5_tickets - db_tickets
-            if orphans:
-                logger.warning(f"Orphaned positions [{self.symbol}]: {orphans} (in MT5, not in DB)")
+            new_orphans = orphans - self._notified_orphans
+            if new_orphans:
+                logger.warning(f"Orphaned positions [{self.symbol}]: {new_orphans} (in MT5, not in DB)")
                 await self._log_event(
                     BotEventType.ERROR,
-                    f"Orphaned positions detected: {orphans}",
+                    f"Orphaned positions detected: {new_orphans}",
                 )
                 if self.notifier:
                     await self._notify(self.notifier._send(
-                        f"⚠️ <b>Orphaned positions</b> [{self.symbol}]\nTickets in MT5 but not in DB: {orphans}"
+                        f"⚠️ <b>Orphaned positions</b> [{self.symbol}]\nTickets in MT5 but not in DB: {new_orphans}"
                     ))
+                self._notified_orphans.update(new_orphans)
+            # Clean up: remove orphans that no longer exist in MT5
+            self._notified_orphans &= mt5_tickets
 
             # 4. Phantom detection: in DB but not in MT5
             phantoms = db_tickets - mt5_tickets

@@ -72,7 +72,7 @@ export default function DashboardPage() {
         getLatestSentiment().catch(() => null),
         getSentimentHistory(1).catch(() => null),
         getAccount().catch(() => null),
-        getDailyPnl().catch(() => null),
+        getDailyPnl(activeSymbol).catch(() => null),
         getAnalytics(undefined, 30).catch(() => null),
       ]);
 
@@ -189,7 +189,10 @@ export default function DashboardPage() {
   }, [activeSymbol, symbolStatuses]);
 
   const isRunning = status?.state === "RUNNING";
-  const unrealizedPnL = positions.reduce((sum, p) => sum + (p.profit || 0), 0);
+  const filteredPositions = viewMode === "multi"
+    ? positions
+    : positions.filter((p) => p.symbol === activeSymbol);
+  const unrealizedPnL = filteredPositions.reduce((sum, p) => sum + (p.profit || 0), 0);
   const activeTick = ticks[activeSymbol] || tick;
   const activeSymbolInfo = symbols.find((s) => s.symbol === activeSymbol);
   const priceDecimals = activeSymbolInfo?.price_decimals ?? 2;
@@ -282,11 +285,7 @@ export default function DashboardPage() {
                       <path fill="#f3ba2f" d="M314.66,256h0L256,197.25,212.6,240.63h0l-5,5L197.33,255.9l-.08.08.08.08L256,314.72l58.7-58.7,0,0-.05,0"/>
                     </svg>
                   ) : (
-                    <svg viewBox="0 0 122.88 122.88" className="size-5">
-                      <path fill="#fecb00" d="M61.44,0A61.46,61.46,0,1,1,18,18,61.21,61.21,0,0,1,61.44,0Z"/>
-                      <path fill="#db9300" d="M63.28,12.41A50.87,50.87,0,1,1,12.41,63.28,50.87,50.87,0,0,1,63.28,12.41Z"/>
-                      <path fill="#fecb00" d="M81.19,45,67.1,47.22a14.53,14.53,0,0,0-1.91-3.68,9.19,9.19,0,0,0-2.81-2.08V52.38q11.48,3.07,15.34,6.47a14.92,14.92,0,0,1,5.09,11.61A15.77,15.77,0,0,1,81,78a18.66,18.66,0,0,1-4.68,5.75,18.87,18.87,0,0,1-6.07,3.35,30,30,0,0,1-7.85,1.22v7.12h-5.5V88.32a34.54,34.54,0,0,1-9-1.78,18.16,18.16,0,0,1-6-3.6A17.75,17.75,0,0,1,38,78a23.24,23.24,0,0,1-2-6.41l15.24-1.77a13.92,13.92,0,0,0,1.85,5.37,9.55,9.55,0,0,0,3.8,2.93V64.75A69.82,69.82,0,0,1,46,61.09a14.48,14.48,0,0,1-7.89-13.31,15,15,0,0,1,4.71-11.25q4.72-4.53,14-5V27.8h5.5v3.71q8.48.52,13,4A16.06,16.06,0,0,1,81.19,45ZM56.88,41.26a7.19,7.19,0,0,0-3.38,2,4.24,4.24,0,0,0-1,2.76,4.47,4.47,0,0,0,1,2.87,7.1,7.1,0,0,0,3.36,2.07V41.26Zm5.5,37.23a8.76,8.76,0,0,0,4.69-2.37,5.37,5.37,0,0,0,1.5-3.69,5.08,5.08,0,0,0-1.26-3.29,11.58,11.58,0,0,0-4.93-2.77V78.49Z"/>
-                    </svg>
+                    <img src="/coin.svg" alt="MT5" className="size-5" />
                   )}
                 </div>
                 <div>
@@ -327,7 +326,7 @@ export default function DashboardPage() {
           subtitle={dailyPnl ? `${dailyPnl.wins}W / ${dailyPnl.losses}L (${dailyPnl.trade_count} trades)` : undefined}
           variant={!dailyPnl ? "default" : dailyPnl.daily_pnl >= 0 ? "success" : "danger"}
         />
-        <StatCard icon={Layers} label="Open Positions" value={positions.length} variant="default" />
+        <StatCard icon={Layers} label="Open Positions" value={filteredPositions.length} variant="default" />
         <StatCard
           icon={Activity}
           label="Bot Status"
@@ -537,7 +536,7 @@ export default function DashboardPage() {
             <CardTitle className="text-sm font-bold">Open Positions</CardTitle>
           </CardHeader>
           <CardContent className="p-3 pt-0 sm:p-6 sm:pt-0">
-            {positions.length > 0 ? (
+            {filteredPositions.length > 0 ? (
               <div className="overflow-x-auto -mx-3 px-3 sm:mx-0 sm:px-0">
                 <Table>
                   <TableHeader>
@@ -552,7 +551,7 @@ export default function DashboardPage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {positions.map((p) => (
+                    {filteredPositions.map((p) => (
                       <TableRow key={p.ticket} className="hover:bg-muted/30 transition-colors">
                         <TableCell className="font-medium text-xs">{p.symbol}</TableCell>
                         <TableCell
