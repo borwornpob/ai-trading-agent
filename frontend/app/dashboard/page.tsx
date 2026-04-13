@@ -110,6 +110,11 @@ export default function DashboardPage() {
         // Set active symbol's status for backward compat
         const activeStatus = statusRes.data.symbols[activeSymbol];
         if (activeStatus) setStatus(activeStatus);
+        // Populate per-symbol sentiment from status
+        for (const [sym, st] of Object.entries(statusRes.data.symbols)) {
+          const s = st as Record<string, unknown>;
+          if (s.sentiment) setSentiment({ ...(s.sentiment as Record<string, unknown>), symbol: sym } as Parameters<typeof setSentiment>[0]);
+        }
       } else if (statusRes) {
         // Single-symbol fallback
         setStatus(statusRes.data);

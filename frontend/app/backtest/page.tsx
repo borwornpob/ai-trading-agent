@@ -11,14 +11,15 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Play, BarChart3, TrendingUp, DollarSign, Target,
-  AlertTriangle, Search, Loader2, FlaskConical, Zap,
+  AlertTriangle, Search, Loader2, FlaskConical, Zap, Footprints,
+  CheckCircle, XCircle,
 } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { PageInstructions } from "@/components/layout/PageInstructions";
 import { StatCard } from "@/components/ui/stat-card";
 import { TIMEFRAMES } from "@/components/ui/timeframe-selector";
 import {
-  runBacktest, runOptimize, getCurrentStrategy, getDataStatus, getSymbols,
+  runBacktest, runOptimize, runWalkForward, getCurrentStrategy, getDataStatus, getSymbols,
 } from "@/lib/api";
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -100,6 +101,12 @@ export default function BacktestPage() {
     () => buildDefaultGridInputs("ema_crossover")
   );
 
+  // Walk-Forward state
+  const [wfResult, setWfResult] = useState<Record<string, unknown> | null>(null);
+  const [wfRunning, setWfRunning] = useState(false);
+  const [wfSplits, setWfSplits] = useState(5);
+  const [wfTrainPct, setWfTrainPct] = useState(70);
+
   const currentParams: ParamDef[] = STRATEGY_PARAMS[strategy] ?? [];
 
   const handleStrategyChange = (v: string) => {
@@ -142,6 +149,29 @@ export default function BacktestPage() {
       const res = await runOptimize(params as Parameters<typeof runOptimize>[0]);
       setOptResult(res.data);
     } catch { /* handled */ } finally { setOptimizing(false); }
+  };
+
+  const handleWalkForward = async () => {
+    setWfRunning(true);
+    setWfResult(null);
+    try {
+      const parseList = (s: string) => s.split(",").map(Number).filter((n) => !isNaN(n));
+      const paramGrid: Record<string, number[]> = {};
+      for (const [key, value] of Object.entries(paramGridInputs)) {
+        const parsed = parseList(value);
+        if (parsed.length > 0) paramGrid[key] = parsed;
+      }
+      const params: Record<string, unknown> = {
+        strategy, symbol, timeframe, initial_balance: balance, source,
+        param_grid: paramGrid,
+        n_splits: wfSplits,
+        train_pct: wfTrainPct / 100,
+      };
+      if (source === "db") { params.from_date = fromDate; params.to_date = toDate; }
+      else { params.count = count; }
+      const res = await runWalkForward(params as Parameters<typeof runWalkForward>[0]);
+      setWfResult(res.data);
+    } catch { /* handled */ } finally { setWfRunning(false); }
   };
 
   const equityCurve = (result?.equity_curve as number[] || []).map((v, i) => ({ bar: i, equity: v }));
@@ -236,9 +266,10 @@ export default function BacktestPage() {
       />
 
       <Tabs defaultValue="backtest" className="space-y-5">
-        <TabsList className="grid w-full grid-cols-2 max-w-xs">
+        <TabsList className="grid w-full grid-cols-3 max-w-md">
           <TabsTrigger value="backtest"><FlaskConical className="size-3.5 mr-1.5" />Backtest</TabsTrigger>
           <TabsTrigger value="optimize"><Zap className="size-3.5 mr-1.5" />Optimizer</TabsTrigger>
+          <TabsTrigger value="walk-forward"><Footprints className="size-3.5 mr-1.5" />Walk Forward</TabsTrigger>
         </TabsList>
 
         {/* ── Backtest Tab ─────────────────────────────────────── */}
@@ -414,6 +445,177 @@ export default function BacktestPage() {
             <div className="rounded-xl border border-red-500/20 bg-red-500/5 p-3 flex items-center gap-2">
               <AlertTriangle className="size-4 text-red-400 shrink-0" />
               <p className="text-sm text-red-400">{String(optResult.error)}</p>
+            </div>
+          )}
+        </TabsContent>
+
+        {/* ── Walk Forward Tab ────────────────────────────────── */}
+        <TabsContent value="walk-forward" className="space-y-4 mt-0">
+          {configForm}
+
+          {/* Parameter Grid (reuse same inputs) */}
+          <div className="rounded-xl border border-border bg-card p-4 space-y-3">
+            <h3 className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Parameter Grid</h3>
+            {currentParams.length > 0 ? (
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                {currentParams.map((p) => (
+                  <div key={p.key} className="space-y-1">
+                    <label className="text-[11px] text-muted-foreground font-medium">{p.label}</label>
+                    <Input
+                      value={paramGridInputs[p.key] || ""}
+                      onChange={(e) => setParamGridInputs((prev) => ({ ...prev, [p.key]: e.target.value }))}
+                      placeholder={p.defaults.join(",")}
+                      className="text-sm font-mono"
+                    />
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-xs text-muted-foreground py-2">No optimizable parameters for this strategy.</p>
+            )}
+          </div>
+
+          {/* Walk Forward Settings */}
+          <div className="rounded-xl border border-border bg-card p-4 space-y-3">
+            <h3 className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Walk Forward Settings</h3>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <label className="text-[11px] text-muted-foreground font-medium">Splits (windows)</label>
+                <Input type="number" value={wfSplits} onChange={(e) => setWfSplits(Math.max(2, Math.min(20, parseInt(e.target.value) || 5)))} className="text-sm" />
+              </div>
+              <div className="space-y-1">
+                <label className="text-[11px] text-muted-foreground font-medium">Train % per window</label>
+                <Input type="number" value={wfTrainPct} onChange={(e) => setWfTrainPct(Math.max(50, Math.min(90, parseInt(e.target.value) || 70)))} className="text-sm" />
+              </div>
+            </div>
+            <p className="text-[11px] text-muted-foreground">
+              Each window: optimize on {wfTrainPct}% train data, validate on {100 - wfTrainPct}% out-of-sample. Detects overfitting.
+            </p>
+          </div>
+
+          <div className="flex justify-end">
+            <Button onClick={handleWalkForward} disabled={wfRunning || currentParams.length === 0} className="rounded-lg font-medium min-w-35">
+              {wfRunning ? <Loader2 className="size-4 mr-1.5 animate-spin" /> : <Footprints className="size-4 mr-1.5" />}
+              {wfRunning ? "Running..." : "Run Walk Forward"}
+            </Button>
+          </div>
+
+          {wfResult && !wfResult.error && (
+            <div className="space-y-4">
+              {/* Summary Stats */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <StatCard icon={BarChart3} label="OOS Sharpe" value={(wfResult.aggregate_oos_sharpe as number).toFixed(3)} variant={(wfResult.aggregate_oos_sharpe as number) > 0.5 ? "success" : "warning"} />
+                <StatCard icon={TrendingUp} label="OOS Win Rate" value={`${((wfResult.aggregate_oos_win_rate as number) * 100).toFixed(1)}%`} variant={(wfResult.aggregate_oos_win_rate as number) > 0.5 ? "success" : "danger"} />
+                <StatCard icon={Target} label="Overfit Ratio" value={(wfResult.overfitting_ratio as number).toFixed(3)} variant={(wfResult.overfitting_ratio as number) >= 0.5 ? "success" : "danger"} />
+                <StatCard icon={BarChart3} label="OOS Trades" value={wfResult.aggregate_oos_total_trades as number} />
+              </div>
+
+              {/* Overfitting Verdict */}
+              <div className={`rounded-xl border p-4 flex items-center gap-3 ${
+                wfResult.likely_overfit
+                  ? "border-red-500/30 bg-red-500/5"
+                  : "border-green-500/30 bg-green-500/5"
+              }`}>
+                {wfResult.likely_overfit
+                  ? <XCircle className="size-5 text-red-400 shrink-0" />
+                  : <CheckCircle className="size-5 text-green-400 shrink-0" />}
+                <div>
+                  <p className={`text-sm font-semibold ${wfResult.likely_overfit ? "text-red-400" : "text-green-400"}`}>
+                    {wfResult.likely_overfit ? "Likely Overfit" : "Robust Strategy"}
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    IS Sharpe: {(wfResult.in_sample_avg_sharpe as number).toFixed(3)} → OOS Sharpe: {(wfResult.aggregate_oos_sharpe as number).toFixed(3)} (ratio: {(wfResult.overfitting_ratio as number).toFixed(2)})
+                    {(wfResult.overfitting_ratio as number) < 0.5 ? " — large performance drop out-of-sample" : " — performance holds out-of-sample"}
+                  </p>
+                </div>
+              </div>
+
+              {/* Window-by-window breakdown */}
+              {(wfResult.windows as Record<string, unknown>[])?.length > 0 && (
+                <div className="rounded-xl border border-border bg-card overflow-hidden">
+                  <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide px-4 pt-4 pb-2">Window Breakdown</h3>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="text-muted-foreground border-b border-border">
+                          <th className="text-left py-2 px-4 font-semibold">Split</th>
+                          <th className="text-right py-2 px-4 font-semibold">Train</th>
+                          <th className="text-right py-2 px-4 font-semibold">Test</th>
+                          <th className="text-left py-2 px-4 font-semibold">Best Params</th>
+                          <th className="text-right py-2 px-4 font-semibold">IS Sharpe</th>
+                          <th className="text-right py-2 px-4 font-semibold">OOS Sharpe</th>
+                          <th className="text-right py-2 px-4 font-semibold">OOS Win%</th>
+                          <th className="text-right py-2 px-4 font-semibold">OOS P&L</th>
+                          <th className="text-right py-2 px-4 font-semibold">Trades</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {(wfResult.windows as Record<string, unknown>[]).map((w) => (
+                          <tr key={w.split as number} className="border-b border-border/50 hover:bg-accent/30">
+                            <td className="py-2 px-4 font-semibold">{w.split as number}</td>
+                            <td className="text-right py-2 px-4 text-muted-foreground">{w.train_bars as number}</td>
+                            <td className="text-right py-2 px-4 text-muted-foreground">{w.test_bars as number}</td>
+                            <td className="py-2 px-4 font-mono text-muted-foreground">
+                              {Object.entries(w.best_params as Record<string, number>).map(([k, v]) => `${k}=${v}`).join(", ")}
+                            </td>
+                            <td className="text-right py-2 px-4 font-mono">{(w.in_sample_sharpe as number).toFixed(3)}</td>
+                            <td className={`text-right py-2 px-4 font-mono font-semibold ${(w.oos_sharpe as number) > 0 ? "text-green-400" : "text-red-400"}`}>
+                              {(w.oos_sharpe as number).toFixed(3)}
+                            </td>
+                            <td className="text-right py-2 px-4">{((w.oos_win_rate as number) * 100).toFixed(1)}%</td>
+                            <td className={`text-right py-2 px-4 font-semibold ${(w.oos_total_profit as number) >= 0 ? "text-green-400" : "text-red-400"}`}>
+                              ${(w.oos_total_profit as number).toFixed(2)}
+                            </td>
+                            <td className="text-right py-2 px-4">{w.oos_total_trades as number}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {/* Parameter Stability */}
+              {(wfResult.best_params_stability as Record<string, number>[])?.length > 1 && (
+                <div className="rounded-xl border border-border bg-card p-4">
+                  <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-3">Parameter Stability</h3>
+                  <p className="text-[11px] text-muted-foreground mb-2">
+                    Consistent parameters across windows indicate a robust strategy. Large variations suggest overfitting.
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    {Object.keys((wfResult.best_params_stability as Record<string, number>[])[0]).map((key) => {
+                      const values = (wfResult.best_params_stability as Record<string, number>[]).map((p) => p[key]);
+                      const unique = [...new Set(values)];
+                      const stable = unique.length === 1;
+                      return (
+                        <Badge key={key} variant="outline" className={`text-xs py-1 px-3 rounded-full ${stable ? "border-green-500/50 text-green-400" : "border-amber-500/50 text-amber-400"}`}>
+                          {key}: {unique.length === 1 ? String(unique[0]) : unique.join(" → ")}
+                        </Badge>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {!wfResult && !wfRunning && (
+            <div className="flex flex-col items-center justify-center py-16 text-center">
+              <div className="size-12 rounded-xl bg-muted flex items-center justify-center mb-3">
+                <Footprints className="size-6 text-muted-foreground" />
+              </div>
+              <p className="text-sm font-semibold">No walk-forward results yet</p>
+              <p className="text-xs text-muted-foreground mt-1 max-w-xs">
+                Walk Forward tests parameters on unseen data to detect overfitting.
+                Define parameter grid above and run.
+              </p>
+            </div>
+          )}
+
+          {wfResult && "error" in wfResult && (
+            <div className="rounded-xl border border-red-500/20 bg-red-500/5 p-3 flex items-center gap-2">
+              <AlertTriangle className="size-4 text-red-400 shrink-0" />
+              <p className="text-sm text-red-400">{String(wfResult.error)}</p>
             </div>
           )}
         </TabsContent>

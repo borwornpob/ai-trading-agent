@@ -117,6 +117,19 @@ export const runOptimize = (params: {
   initial_balance?: number;
   min_trades?: number;
 }) => api.post("/api/backtest/optimize", params, { timeout: 120000 });
+export const runWalkForward = (params: {
+  strategy: string;
+  param_grid: Record<string, number[]>;
+  n_splits?: number;
+  train_pct?: number;
+  symbol?: string;
+  timeframe?: string;
+  source?: string;
+  from_date?: string;
+  to_date?: string;
+  initial_balance?: number;
+  count?: number;
+}) => api.post("/api/backtest/walk-forward", params, { timeout: 180000 });
 
 // Historical Data
 export const collectData = (params: {

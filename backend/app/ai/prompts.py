@@ -54,8 +54,10 @@ Response format:
   "sentiment": "bullish" | "bearish" | "neutral",
   "score": float between -1.0 (very bearish) and 1.0 (very bullish),
   "confidence": float between 0.0 and 1.0,
-  "key_factors": ["factor1", "factor2"]
+  "key_factors": ["ปัจจัยที่ 1 เป็นภาษาไทย", "ปัจจัยที่ 2 เป็นภาษาไทย"]
 }}
+
+IMPORTANT: key_factors MUST be in Thai language. Summarize each factor concisely in Thai.
 
 {focus}"""
 
