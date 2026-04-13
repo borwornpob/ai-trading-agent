@@ -44,48 +44,31 @@ export function StatCard({
   return (
     <div
       className={cn(
-        "rounded-2xl border border-border p-4 sm:p-5 card-hover",
+        "rounded-xl border border-border p-3 card-hover",
         "bg-card",
         className
       )}
     >
-      <div className="flex items-start justify-between">
-        <div
-          className={cn(
-            "size-7 sm:size-9 rounded-xl flex items-center justify-center",
-            iconVariantStyles[variant]
-          )}
-        >
-          {iconNode ? iconNode : Icon ? <Icon className="size-3.5 sm:size-4" /> : null}
-        </div>
-        {trend && (
-          <span
-            className={cn(
-              "text-xs font-semibold px-1.5 sm:px-2 py-0.5 rounded-full",
-              trend.direction === "up" && "bg-success/10 text-success dark:bg-green-400/10 dark:text-green-400",
-              trend.direction === "down" && "bg-destructive/10 text-destructive",
-              trend.direction === "flat" && "bg-muted text-muted-foreground"
-            )}
-          >
-            {trend.direction === "up" && "+"}
-            {trend.label}
-          </span>
+      <div
+        className={cn(
+          "size-6 rounded-lg flex items-center justify-center mb-1.5",
+          iconVariantStyles[variant]
         )}
+      >
+        {iconNode ? iconNode : Icon ? <Icon className="size-3" /> : null}
       </div>
-      <div className="mt-2 sm:mt-3">
-        <p className="text-xs text-muted-foreground font-medium">{label}</p>
-        <p
-          className={cn(
-            "mt-0.5 sm:mt-1 text-base sm:text-xl font-bold font-mono tracking-tight truncate",
-            variantStyles[variant]
-          )}
-        >
-          {value}
-        </p>
-        {subtitle && (
-          <p className="mt-0.5 text-xs text-muted-foreground font-medium truncate">{subtitle}</p>
+      <p className="text-[11px] text-muted-foreground font-medium">{label}</p>
+      <p
+        className={cn(
+          "mt-0.5 text-sm font-bold font-mono tracking-tight truncate",
+          variantStyles[variant]
         )}
-      </div>
+      >
+        {value}
+      </p>
+      {subtitle && (
+        <p className="mt-0.5 text-[10px] text-muted-foreground font-medium truncate">{subtitle}</p>
+      )}
     </div>
   );
 }

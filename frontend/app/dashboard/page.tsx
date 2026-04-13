@@ -333,7 +333,7 @@ export default function DashboardPage() {
       )}
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-3 gap-4 animate-fade-in" style={{ animationDelay: "0.05s" }}>
+      <div className="grid grid-cols-3 lg:grid-cols-6 gap-2 animate-fade-in" style={{ animationDelay: "0.05s" }}>
         <StatCard
           icon={TrendingUp}
           label="Unrealized P&L"
