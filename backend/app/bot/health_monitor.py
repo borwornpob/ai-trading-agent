@@ -22,10 +22,12 @@ class HealthMonitor:
         """Run health check against MT5 Bridge. Returns status dict."""
         try:
             result = await self._connector.get_health()
-            if result.get("success"):
+            # Bridge returns {"status": "ok", "mt5": {...}} on success
+            # Connector returns {"success": False, "error": "..."} on HTTP/network error
+            if result.get("status") == "ok" or result.get("success"):
                 return await self._on_success()
             else:
-                return await self._on_failure(f"Bridge returned error: {result.get('error', 'unknown')}")
+                return await self._on_failure(f"Bridge returned error: {result.get('error', result.get('status', 'unknown'))}")
         except Exception as e:
             return await self._on_failure(str(e))
 
