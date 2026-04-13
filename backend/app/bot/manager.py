@@ -29,31 +29,16 @@ class BotManager:
         self.engines: dict[str, BotEngine] = {}
         self._positions_cache: dict[str, list[dict]] = {}
         self._positions_cache_time: float = 0
-        self._binance_connector = None
-
-        # Initialize Binance connector if configured
-        binance_symbols = set(settings.binance_symbol_list)
-        if binance_symbols and settings.binance_api_key:
-            from app.binance.connector import BinanceConnector
-            self._binance_connector = BinanceConnector()
-            logger.info(f"BotManager: Binance connector initialized for {binance_symbols}")
-
         # Validate symbol profiles exist
         for symbol in settings.symbol_list:
             if symbol not in SYMBOL_PROFILES:
                 logger.warning(f"BotManager: Symbol '{symbol}' missing from SYMBOL_PROFILES — using defaults (review contract_size!)")
 
-        # Create an engine for each configured symbol
+        # Create an engine for each configured symbol (all use MT5 Bridge)
         for symbol in settings.symbol_list:
             profile = SYMBOL_PROFILES.get(symbol, {})
-
-            # Use Binance connector for configured symbols, MT5 for the rest
-            if symbol in binance_symbols and self._binance_connector:
-                sym_connector = self._binance_connector
-                logger.info(f"BotManager: {symbol} → Binance API ({settings.binance_base_url})")
-            else:
-                sym_connector = connector
-                logger.info(f"BotManager: {symbol} → MT5 Bridge")
+            sym_connector = connector
+            logger.info(f"BotManager: {symbol} → MT5 Bridge")
 
             engine = BotEngine(
                 connector=sym_connector,

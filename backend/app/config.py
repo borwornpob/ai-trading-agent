@@ -35,7 +35,7 @@ SYMBOL_PROFILES: dict[str, dict] = {
         "ml_timeframe": "M15",
     },
     "BTCUSD": {
-        "display_name": "Bitcoin (Binance)",
+        "display_name": "Bitcoin",
         "default_timeframe": "M15",
         "pip_value": 1.0,
         "default_lot": 0.01,

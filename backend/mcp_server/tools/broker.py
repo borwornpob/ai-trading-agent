@@ -59,7 +59,16 @@ async def place_order(
     )
 
     if not all(r.get("success") for r in [account_res, positions_res, tick_res]):
-        return {"error": "Failed to fetch account/position/tick data for guardrail validation"}
+        from loguru import logger
+        failed = []
+        if not account_res.get("success"):
+            failed.append(f"account: {account_res.get('error', 'unknown')}")
+        if not positions_res.get("success"):
+            failed.append(f"positions: {positions_res.get('error', 'unknown')}")
+        if not tick_res.get("success"):
+            failed.append(f"tick: {tick_res.get('error', 'unknown')}")
+        logger.error(f"place_order pre-check failed: {', '.join(failed)}")
+        return {"error": f"Failed to fetch data for guardrail validation: {', '.join(failed)}"}
 
     account = account_res["data"]
     positions = positions_res.get("data", [])
