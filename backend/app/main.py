@@ -65,6 +65,7 @@ async def lifespan(app: FastAPI):
     try:
         from sqlalchemy import text
         async with async_session() as _tmp_session:
+            await _tmp_session.execute(text("SET lock_timeout = '5s'"))
             for col_sql in [
                 "ALTER TABLE trades ADD COLUMN IF NOT EXISTS trade_reason VARCHAR(255)",
                 "ALTER TABLE trades ADD COLUMN IF NOT EXISTS pre_trade_snapshot JSON",
