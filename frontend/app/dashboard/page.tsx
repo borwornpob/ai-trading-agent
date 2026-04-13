@@ -62,6 +62,8 @@ export default function DashboardPage() {
   >([]);
   const [analytics, setAnalytics] = useState<Record<string, unknown> | null>(null);
   const { isConnected, subscribe } = useWebSocket();
+  const activeSymbolRef = useRef(activeSymbol);
+  activeSymbolRef.current = activeSymbol;
 
   const fetchData = useCallback(async () => {
     try {
@@ -72,7 +74,7 @@ export default function DashboardPage() {
         getLatestSentiment().catch(() => null),
         getSentimentHistory(1).catch(() => null),
         getAccount().catch(() => null),
-        getDailyPnl(activeSymbol).catch(() => null),
+        getDailyPnl().catch(() => null),
         getAnalytics(undefined, 30).catch(() => null),
       ]);
 
@@ -80,7 +82,7 @@ export default function DashboardPage() {
       if (statusRes?.data?.symbols) {
         setSymbolStatuses(statusRes.data.symbols);
         // Set active symbol's status for backward compat
-        const activeStatus = statusRes.data.symbols[activeSymbol];
+        const activeStatus = statusRes.data.symbols[activeSymbolRef.current];
         if (activeStatus) setStatus(activeStatus);
         // Populate per-symbol sentiment from status
         for (const [sym, st] of Object.entries(statusRes.data.symbols)) {
@@ -123,7 +125,8 @@ export default function DashboardPage() {
     } finally {
       setLoading(false);
     }
-  }, [activeSymbol, setStatus, setSymbolStatuses, setSymbols, setPositions, setSentiment]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [setStatus, setSymbolStatuses, setSymbols, setPositions, setSentiment]);
 
   useEffect(() => {
     fetchData();
@@ -192,7 +195,7 @@ export default function DashboardPage() {
   const filteredPositions = viewMode === "multi"
     ? positions
     : positions.filter((p) => p.symbol === activeSymbol);
-  const unrealizedPnL = filteredPositions.reduce((sum, p) => sum + (p.profit || 0), 0);
+  const unrealizedPnL = positions.reduce((sum, p) => sum + (p.profit || 0), 0);
   const activeTick = ticks[activeSymbol] || tick;
   const activeSymbolInfo = symbols.find((s) => s.symbol === activeSymbol);
   const priceDecimals = activeSymbolInfo?.price_decimals ?? 2;
@@ -326,7 +329,7 @@ export default function DashboardPage() {
           subtitle={dailyPnl ? `${dailyPnl.wins}W / ${dailyPnl.losses}L (${dailyPnl.trade_count} trades)` : undefined}
           variant={!dailyPnl ? "default" : dailyPnl.daily_pnl >= 0 ? "success" : "danger"}
         />
-        <StatCard icon={Layers} label="Open Positions" value={filteredPositions.length} variant="default" />
+        <StatCard icon={Layers} label="Open Positions" value={positions.length} variant="default" />
         <StatCard
           icon={Activity}
           label="Bot Status"

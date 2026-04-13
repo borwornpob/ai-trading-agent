@@ -2,7 +2,7 @@ FROM python:3.12-slim
 
 # System deps + Node.js (required by claude-agent-sdk CLI)
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl ca-certificates && \
+    curl ca-certificates libgomp1 && \
     curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && \
     apt-get install -y --no-install-recommends nodejs && \
     rm -rf /var/lib/apt/lists/*
