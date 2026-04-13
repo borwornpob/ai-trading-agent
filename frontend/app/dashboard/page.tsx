@@ -3,8 +3,6 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Switch } from "@/components/ui/switch";
-import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -411,35 +409,32 @@ export default function DashboardPage() {
 
             <Separator />
 
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-1">
-              <div className="flex items-center justify-between">
-                <span className="text-sm text-muted-foreground font-medium">Paper Trade</span>
-                <Switch
-                  checked={status?.paper_trade ?? false}
-                  onCheckedChange={async (v) => { await updateSettings({ symbol: activeSymbol, paper_trade: v }); fetchData(); }}
-                />
-              </div>
-
-              </div>
-
             {status?.paper_trade && (
               <p className="text-xs text-amber-600 dark:text-amber-400 bg-amber-100 dark:bg-amber-400/10 rounded-xl px-3 py-1.5 font-medium">
-                Paper mode — no real orders sent to MT5
+                Paper mode — no real orders
               </p>
             )}
 
             <div className="space-y-2 text-xs text-muted-foreground">
-              <div className="flex items-center justify-between">
+              <div className="flex justify-between">
                 <span className="font-medium">Mode</span>
                 <span className="font-semibold text-green-400">Strategy-First</span>
               </div>
               <div className="flex justify-between">
                 <span className="font-medium">Strategy</span>
-                <span className="text-foreground font-semibold">{status?.strategy || "ema_crossover"}</span>
+                <span className="text-foreground font-semibold">{status?.strategy || "—"}</span>
               </div>
               <div className="flex justify-between">
                 <span className="font-medium">Symbol</span>
                 <span className="text-foreground font-semibold">{activeSymbol}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="font-medium">Timeframe</span>
+                <span className="text-foreground font-semibold">{status?.timeframe || "M15"}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="font-medium">Lot</span>
+                <span className="text-foreground font-semibold">{status?.fixed_lot != null ? `Fixed ${status.fixed_lot}` : "Auto"}</span>
               </div>
               {(status?.multi_tf_regime || status?.regime) && (
                 <div className="space-y-1">
@@ -470,69 +465,10 @@ export default function DashboardPage() {
                   )}
                 </div>
               )}
-              <div className="flex items-center justify-between">
-                <span className="font-medium">Timeframe</span>
-                <Select
-                  value={status?.timeframe || "M15"}
-                  onValueChange={async (v) => { if (v) { await updateSettings({ symbol: activeSymbol, timeframe: v }); fetchData(); } }}
-                >
-                  <SelectTrigger className="w-24 h-7 text-xs">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {TIMEFRAMES.map((tf) => (
-                      <SelectItem key={tf} value={tf}>{tf}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="font-medium">Lot Size</span>
-                  <Select
-                    value={status?.fixed_lot != null ? "fixed" : "auto"}
-                    onValueChange={async (v) => {
-                      if (v === "auto") {
-                        await updateSettings({ symbol: activeSymbol, lot_mode: "auto" });
-                      } else {
-                        const lot = status?.fixed_lot ?? activeSymbolInfo?.default_lot ?? 0.1;
-                        await updateSettings({ symbol: activeSymbol, lot_mode: "fixed", fixed_lot: lot });
-                      }
-                      fetchData();
-                    }}
-                  >
-                    <SelectTrigger className="w-24 h-7 text-xs">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="auto">Auto (AI)</SelectItem>
-                      <SelectItem value="fixed">Fixed</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                {status?.fixed_lot != null && (
-                  <div className="flex items-center justify-between">
-                    <span className="font-medium text-muted-foreground/70">Fixed Lot</span>
-                    <Input
-                      type="number"
-                      step="0.01"
-                      min="0.01"
-                      max={status?.max_lot ?? 100}
-                      className="w-24 h-7 text-xs text-right font-mono"
-                      defaultValue={status.fixed_lot}
-                      key={`${activeSymbol}-fixed-${status.fixed_lot}`}
-                      onBlur={async (e) => {
-                        const v = parseFloat(e.target.value);
-                        if (v >= 0.01 && v <= (status?.max_lot ?? 100)) {
-                          await updateSettings({ symbol: activeSymbol, lot_mode: "fixed", fixed_lot: v });
-                          fetchData();
-                        }
-                      }}
-                      onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }}
-                    />
-                  </div>
-                )}
-              </div>
+              <Separator />
+              <a href="/settings" className="text-[11px] text-primary hover:underline">
+                Settings
+              </a>
             </div>
           </CardContent>
         </Card>
@@ -603,14 +539,19 @@ export default function DashboardPage() {
                 <div className="flex items-center gap-2">
                   <Activity className="size-4 text-primary" />
                   AI วิเคราะห์ล่าสุด
+                  {/* Signal badge */}
+                  {(() => {
+                    const d = (status.ai_decision.decision as string || "").toLowerCase();
+                    const signal = d.includes("buy") && !d.includes("hold") ? "BUY" : d.includes("sell") && !d.includes("hold") ? "SELL" : "HOLD";
+                    const color = signal === "BUY" ? "bg-green-500/10 text-green-400 border-green-500/20" : signal === "SELL" ? "bg-red-500/10 text-red-400 border-red-500/20" : "bg-zinc-500/10 text-zinc-400 border-zinc-500/20";
+                    return <Badge variant="outline" className={`text-[10px] ${color}`}>{signal}</Badge>;
+                  })()}
                 </div>
                 <div className="flex items-center gap-3 text-xs font-normal text-muted-foreground">
-                  <span className="bg-primary/10 text-primary px-2 py-0.5 rounded-full font-medium">
-                    {STRATEGY_TH[status.ai_decision.strategy] || status.ai_decision.strategy?.replace(/_/g, " ")}
-                  </span>
-                  <span>{status.ai_decision.tool_calls} เครื่องมือ</span>
-                  <span>{status.ai_decision.turns} รอบ</span>
-                  <span>{status.ai_decision.duration_s}วิ</span>
+                  <span>{new Date().toLocaleString("th-TH", { timeZone: "Asia/Bangkok", hour: "2-digit", minute: "2-digit", day: "2-digit", month: "short" })}</span>
+                  <span>{status.ai_decision.tool_calls} tools</span>
+                  <span>{status.ai_decision.turns} turns</span>
+                  <span>{status.ai_decision.duration_s}s</span>
                 </div>
               </CardTitle>
             </CardHeader>
