@@ -159,8 +159,12 @@ async def get_activity_log(
             .order_by(desc(Trade.created_at))
             .limit(100)
         )
-        trade_result = await db.execute(trade_q)
-        trades = trade_result.scalars().all()
+        try:
+            trade_result = await db.execute(trade_q)
+            trades = trade_result.scalars().all()
+        except Exception:
+            await db.rollback()
+            trades = []
 
         for t in trades:
             profit_str = f"${t.profit:.2f}" if t.profit is not None else "open"

@@ -28,7 +28,7 @@ async def get_trades(
 
     cutoff = datetime.utcnow() - timedelta(days=days)
 
-    # 1. Pull from DB
+    # 1. Pull from DB (with fallback if new columns not yet migrated)
     query = select(Trade).where(Trade.open_time >= cutoff)
     if strategy:
         query = query.where(Trade.strategy_name == strategy)
@@ -37,35 +37,55 @@ async def get_trades(
     if symbol:
         query = query.where(Trade.symbol == symbol)
     query = query.order_by(desc(Trade.open_time))
-    result = await db.execute(query)
-    db_trades = result.scalars().all()
 
-    db_tickets = {t.ticket for t in db_trades}
+    try:
+        result = await db.execute(query)
+        db_trades = result.scalars().all()
+    except Exception:
+        # New columns not yet migrated — rollback and retry without ORM column mapping issue
+        await db.rollback()
+        from sqlalchemy import text
+        raw = await db.execute(text(
+            "SELECT id, ticket, symbol, type, lot, open_price, close_price, sl, tp, "
+            "open_time, close_time, profit, strategy_name, ai_sentiment_score, ai_sentiment_label "
+            f"FROM trades WHERE open_time >= :cutoff ORDER BY open_time DESC"
+        ), {"cutoff": cutoff})
+        db_trades = raw.fetchall()
 
-    rows = [
-        {
-            "id": t.id,
-            "ticket": t.ticket,
-            "symbol": t.symbol,
-            "type": t.type,
-            "lot": t.lot,
-            "open_price": t.open_price,
-            "close_price": t.close_price,
-            "sl": t.sl,
-            "tp": t.tp,
-            "open_time": t.open_time.isoformat(),
-            "close_time": t.close_time.isoformat() if t.close_time else None,
-            "profit": t.profit,
-            "strategy_name": t.strategy_name,
-            "ai_sentiment_label": t.ai_sentiment_label,
-            "ai_sentiment_score": t.ai_sentiment_score,
-            "trade_reason": t.trade_reason,
-            "pre_trade_snapshot": t.pre_trade_snapshot,
-            "post_trade_analysis": t.post_trade_analysis,
-            "source": "bot",
-        }
-        for t in db_trades
-    ]
+    db_tickets = {getattr(t, "ticket", t[1] if isinstance(t, tuple) else 0) for t in db_trades}
+
+    def _trade_dict(t) -> dict:
+        if hasattr(t, "id"):
+            # ORM object
+            return {
+                "id": t.id, "ticket": t.ticket, "symbol": t.symbol, "type": t.type,
+                "lot": t.lot, "open_price": t.open_price, "close_price": t.close_price,
+                "sl": t.sl, "tp": t.tp,
+                "open_time": t.open_time.isoformat(),
+                "close_time": t.close_time.isoformat() if t.close_time else None,
+                "profit": t.profit, "strategy_name": t.strategy_name,
+                "ai_sentiment_label": getattr(t, "ai_sentiment_label", None),
+                "ai_sentiment_score": getattr(t, "ai_sentiment_score", None),
+                "trade_reason": getattr(t, "trade_reason", None),
+                "pre_trade_snapshot": getattr(t, "pre_trade_snapshot", None),
+                "post_trade_analysis": getattr(t, "post_trade_analysis", None),
+                "source": "bot",
+            }
+        else:
+            # Raw row fallback
+            return {
+                "id": t[0], "ticket": t[1], "symbol": t[2], "type": t[3],
+                "lot": t[4], "open_price": t[5], "close_price": t[6],
+                "sl": t[7], "tp": t[8],
+                "open_time": t[9].isoformat() if t[9] else None,
+                "close_time": t[10].isoformat() if t[10] else None,
+                "profit": t[11], "strategy_name": t[12],
+                "ai_sentiment_score": t[13], "ai_sentiment_label": t[14],
+                "trade_reason": None, "pre_trade_snapshot": None, "post_trade_analysis": None,
+                "source": "bot",
+            }
+
+    rows = [_trade_dict(t) for t in db_trades]
 
     # 2. Merge MT5 history (catches manual trades not in DB)
     if _manager is not None and not strategy:
