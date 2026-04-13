@@ -44,7 +44,7 @@ class MT5BridgeConnector:
                 result = response.json()
                 await self._record_timing(path, time.monotonic() - start)
                 return result
-            except (httpx.TimeoutException, httpx.ConnectError) as e:
+            except (httpx.TimeoutException, httpx.ConnectError, ValueError) as e:
                 if attempt < self.max_retries:
                     logger.warning(f"MT5 Bridge {method.upper()} {path} retry {attempt + 1}: {e}")
                     await asyncio.sleep(1)
@@ -77,7 +77,7 @@ class MT5BridgeConnector:
             response = await getattr(client, method)(path, timeout=2.0, **kwargs)
             response.raise_for_status()
             return response.json()
-        except (httpx.TimeoutException, httpx.ConnectError, httpx.HTTPStatusError):
+        except (httpx.TimeoutException, httpx.ConnectError, httpx.HTTPStatusError, ValueError):
             return {"success": False, "data": None, "error": "tick timeout"}
 
     async def get_health(self) -> dict:
@@ -142,6 +142,9 @@ class MT5BridgeConnector:
             return {"success": False, "data": None, "error": str(e)}
         except httpx.HTTPStatusError as e:
             logger.error(f"MT5 Bridge historical OHLCV HTTP error: {e.response.status_code}")
+            return {"success": False, "data": None, "error": str(e)}
+        except ValueError as e:
+            logger.error(f"MT5 Bridge historical OHLCV invalid response: {e}")
             return {"success": False, "data": None, "error": str(e)}
 
     async def get_history(self, days: int = 1, symbol: str | None = None) -> dict:

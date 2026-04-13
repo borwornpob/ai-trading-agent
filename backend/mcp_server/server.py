@@ -232,11 +232,11 @@ def create_server() -> FastMCP:
 
 if __name__ == "__main__":
     import os
-    import redis
+    import redis.asyncio as redis_async
     from mcp_server.tools import init_mcp_tools
 
     redis_url = os.environ.get("REDIS_URL", "redis://localhost:6379")
-    redis_client = redis.from_url(redis_url)
+    redis_client = redis_async.from_url(redis_url)
     init_mcp_tools(redis_client)
 
     server = create_server()
