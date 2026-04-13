@@ -45,7 +45,7 @@ function MT5Logo() {
 }
 
 const LOGOS: Record<string, () => React.ReactElement> = {
-  anthropic: ClaudeLogo, mt5: MT5Logo, binance: BinanceLogo, telegram: TelegramLogo,
+  anthropic: ClaudeLogo, mt5: MT5Logo, telegram: TelegramLogo,
 };
 
 // ─── Page ───────────────────────────────────────────────────────────────────
@@ -84,7 +84,7 @@ export default function IntegrationPage() {
     try {
       const res = await api.get("/api/integration/status");
       const results: Record<string, TestResult> = {};
-      const keyMap: Record<string, string> = { "Anthropic API": "anthropic", "MT5 Bridge": "mt5", "Binance": "binance", "Telegram": "telegram" };
+      const keyMap: Record<string, string> = { "Anthropic API": "anthropic", "MT5 Bridge": "mt5", "Telegram": "telegram" };
       for (const s of res.data.services) results[keyMap[s.name] || s.name] = s;
       setTestResults(results);
     } catch { /* handled */ } finally { setTesting(null); }

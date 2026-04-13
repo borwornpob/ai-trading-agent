@@ -156,7 +156,6 @@ class BotEngine:
         self._position_group: dict[int, list[int]] = {}  # parent ticket → add-on tickets
         self._position_partial_closed: set[int] = set()  # tickets that had partial TP taken
         self._position_breakeven: set[int] = set()  # tickets moved to breakeven
-        self._notified_orphans: set[int] = set()  # orphan tickets already notified
         self.started_at: datetime | None = None
         self.last_signal_time: datetime | None = None
 
@@ -638,7 +637,7 @@ class BotEngine:
             if self.trailing_stop_enabled and positions and not self.paper_trade:
                 await self._apply_trailing_stops(positions)
 
-            await self._push_event("position_update", {"positions": positions})
+            await self._push_event("position_update", {"symbol": self.symbol, "positions": positions})
         except Exception as e:
             logger.error(f"Position sync error: {e}")
 
@@ -1081,25 +1080,51 @@ class BotEngine:
             db_trades = result.scalars().all()
             db_tickets = {t.ticket for t in db_trades}
 
-            # 3. Orphan detection: in MT5 but not in DB
+            # 3. Orphan detection: in MT5 but not in DB → auto-adopt
             orphans = mt5_tickets - db_tickets
-            new_orphans = orphans - self._notified_orphans
-            if new_orphans:
-                tickets_str = ", ".join(str(t) for t in sorted(new_orphans))
-                logger.warning(f"Orphaned positions [{self.symbol}]: {tickets_str} (in MT5, not in DB)")
-                await self._log_event(
-                    BotEventType.ERROR,
-                    f"Orphaned positions detected: {tickets_str}",
-                )
-                if self.notifier:
-                    await self._notify(self.notifier._send(
-                        f"⚠️ <b>พบ Position ไม่ตรงกัน</b> [{self.symbol}]\n"
-                        f"Ticket ใน MT5 แต่ไม่มีใน DB: {tickets_str}\n"
-                        f"อาจเกิดจาก Partial TP หรือเปิดจาก MT5 โดยตรง"
-                    ))
-                self._notified_orphans.update(new_orphans)
-            # Clean up: remove orphans that no longer exist in MT5
-            self._notified_orphans &= mt5_tickets
+            if orphans:
+                pos_map = {p["ticket"]: p for p in positions}
+                adopted = []
+                for ticket in orphans:
+                    p = pos_map.get(ticket)
+                    if not p:
+                        continue
+                    try:
+                        open_time = datetime.fromisoformat(p["open_time"]) if isinstance(p.get("open_time"), str) else _naive_utc()
+                        trade = Trade(
+                            ticket=ticket,
+                            symbol=self.symbol,
+                            type=p.get("type", "BUY"),
+                            lot=p.get("lot", 0.01),
+                            open_price=p.get("open_price", 0),
+                            sl=p.get("sl", 0),
+                            tp=p.get("tp", 0),
+                            open_time=open_time,
+                            strategy_name=p.get("comment", "adopted_from_mt5") or "adopted_from_mt5",
+                        )
+                        self.db.add(trade)
+                        await self.db.commit()
+                        adopted.append(ticket)
+                        logger.info(f"Auto-adopted orphan [{self.symbol}]: ticket={ticket}")
+                    except Exception as e:
+                        logger.warning(f"Failed to adopt orphan {ticket}: {e}")
+                        try:
+                            await self.db.rollback()
+                        except Exception:
+                            pass
+
+                if adopted:
+                    tickets_str = ", ".join(str(t) for t in sorted(adopted))
+                    await self._log_event(
+                        BotEventType.ERROR,
+                        f"Auto-adopted orphaned positions: {tickets_str}",
+                    )
+                    if self.notifier:
+                        await self._notify(self.notifier._send(
+                            f"🔄 <b>Auto-adopted positions</b> [{self.symbol}]\n"
+                            f"Tickets: {tickets_str}\n"
+                            f"สร้าง record ใน DB ให้อัตโนมัติแล้ว"
+                        ))
 
             # 4. Phantom detection: in DB but not in MT5
             phantoms = db_tickets - mt5_tickets

@@ -139,7 +139,6 @@ async def get_integration_status(request: Request):
     results = await asyncio.gather(
         _test_anthropic(),
         _test_mt5(),
-        _test_binance(),
         _test_telegram(),
     )
     return {"services": list(results)}
@@ -151,7 +150,6 @@ async def test_service(service: str, request: Request):
     testers = {
         "anthropic": _test_anthropic,
         "mt5": _test_mt5,
-        "binance": _test_binance,
         "telegram": _test_telegram,
     }
     tester = testers.get(service)
@@ -169,7 +167,6 @@ class SaveConfigRequest(BaseModel):
 _CONFIG_VAULT_KEYS: dict[str, dict[str, str]] = {
     "anthropic": {"OAuth Token": "CLAUDE_CODE_OAUTH_TOKEN"},
     "mt5": {"Bridge URL": "MT5_BRIDGE_URL", "API Key": "MT5_BRIDGE_API_KEY"},
-    "binance": {"Base URL": "BINANCE_BASE_URL", "API Key": "BINANCE_API_KEY", "Symbols": "BINANCE_SYMBOLS"},
     "telegram": {"Bot Token": "TELEGRAM_BOT_TOKEN", "Chat ID": "TELEGRAM_CHAT_ID"},
 }
 
@@ -205,9 +202,6 @@ async def get_integration_config(db: AsyncSession = Depends(get_db)):
     claude_token = os.environ.get("CLAUDE_CODE_OAUTH_TOKEN", "")
     mt5_url = await _get_config_value(db, "MT5_BRIDGE_URL", settings.mt5_bridge_url)
     mt5_key = await _get_config_value(db, "MT5_BRIDGE_API_KEY", getattr(settings, "mt5_bridge_api_key", ""))
-    binance_url = await _get_config_value(db, "BINANCE_BASE_URL", getattr(settings, "binance_base_url", ""))
-    binance_key = await _get_config_value(db, "BINANCE_API_KEY", getattr(settings, "binance_api_key", ""))
-    binance_symbols = await _get_config_value(db, "BINANCE_SYMBOLS", getattr(settings, "binance_symbols", ""))
     telegram_token = await _get_config_value(db, "TELEGRAM_BOT_TOKEN", getattr(settings, "telegram_bot_token", ""))
     telegram_chat = await _get_config_value(db, "TELEGRAM_CHAT_ID", getattr(settings, "telegram_chat_id", ""))
 
@@ -247,7 +241,7 @@ async def get_integration_config(db: AsyncSession = Depends(get_db)):
             {
                 "id": "mt5",
                 "name": "MT5 Bridge",
-                "description": "MetaTrader 5 bridge for GOLD, OILCash, USDJPY order execution",
+                "description": "MetaTrader 5 bridge for GOLD, OILCash, BTCUSD, USDJPY order execution",
                 "status": "configured" if mt5_url else "not_configured",
                 "config": {
                     "Bridge URL": mt5_url,
@@ -260,22 +254,6 @@ async def get_integration_config(db: AsyncSession = Depends(get_db)):
                     {"name": "get_positions", "description": "Get all open positions"},
                     {"name": "get_tick", "description": "Get current bid/ask price"},
                     {"name": "get_ohlcv", "description": "Get OHLCV candlestick data"},
-                ],
-            },
-            {
-                "id": "binance",
-                "name": "Binance",
-                "description": "Cryptocurrency exchange for BTCUSD trading",
-                "status": "configured" if binance_url else "not_configured",
-                "config": {
-                    "Base URL": binance_url,
-                    "API Key": _mask(binance_key),
-                    "Symbols": binance_symbols,
-                },
-                "tools": [
-                    {"name": "place_order", "description": "Place BUY/SELL order on Binance"},
-                    {"name": "get_positions", "description": "Get open positions"},
-                    {"name": "get_account", "description": "Get Binance account balance"},
                 ],
             },
             {

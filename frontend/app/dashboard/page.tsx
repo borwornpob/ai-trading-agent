@@ -145,8 +145,17 @@ export default function DashboardPage() {
   useEffect(() => {
     subscribe("price_update", (data) => { if (data) setTick(data as NonNullable<typeof tick>); });
     subscribe("position_update", (data) => {
-      const d = data as { positions: typeof positions };
-      if (d.positions) setPositions(d.positions);
+      const d = data as { symbol?: string; positions: typeof positions };
+      if (d.positions) {
+        // Each engine pushes only its own symbol's positions — merge, don't replace
+        const sym = d.symbol || (d.positions.length > 0 ? d.positions[0].symbol : null);
+        if (sym) {
+          setPositions([
+            ...useBotStore.getState().positions.filter((p) => p.symbol !== sym),
+            ...d.positions,
+          ]);
+        }
+      }
     });
     subscribe("sentiment_update", (data) => { if (data) setSentiment(data as NonNullable<typeof sentiment>); });
     subscribe("bot_event", (data) => {

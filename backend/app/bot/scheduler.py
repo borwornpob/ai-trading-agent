@@ -288,6 +288,8 @@ class BotScheduler:
                     job_input={"symbol": sym, "timeframe": engine.timeframe},
                 )
                 decision = result.get("decision", "HOLD")
+                tool_calls = result.get("tool_calls", [])
+                duration = result.get("duration_s", 0)
                 logger.info(f"AI agent [{sym}]: {decision[:200]}")
 
                 # Store last AI decision for dashboard display
@@ -295,13 +297,20 @@ class BotScheduler:
                     "decision": decision[:3000],
                     "strategy": result.get("strategy_used", "ai_autonomous"),
                     "turns": result.get("turns", 0),
-                    "tool_calls": len(result.get("tool_calls", [])),
-                    "duration_s": result.get("duration_s", 0),
+                    "tool_calls": len(tool_calls),
+                    "duration_s": duration,
                 }
+
+                # Log AI analysis to DB for activity page
+                from app.db.models import BotEventType
+                summary = f"[{sym}] {decision[:500]}"
+                if tool_calls:
+                    summary += f" | Tools: {len(tool_calls)}, {duration:.1f}s"
+                await engine._log_event(BotEventType.AI_ANALYSIS, summary)
 
                 # Publish to WebSocket for real-time dashboard update
                 await engine._push_event("bot_event", {
-                    "type": "AI_DECISION",
+                    "type": "AI_ANALYSIS",
                     "symbol": sym,
                     "decision": decision[:3000],
                     "strategy": result.get("strategy_used", "ai_autonomous"),

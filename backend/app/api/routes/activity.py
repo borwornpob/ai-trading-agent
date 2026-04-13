@@ -30,6 +30,7 @@ _AI_EVENT_MAP: dict[str, str] = {
     "STOPPED": "system",
     "ERROR": "error",
     "SETTINGS_CHANGED": "system",
+    "AI_ANALYSIS": "ai",
 }
 
 

@@ -159,6 +159,18 @@ async def place_order(
                 )
             except Exception as e:
                 logger.error(f"Telegram notify failed: {e}")
+        # Log AI-initiated trade to event DB
+        try:
+            from app.bot.manager import get_manager
+            from app.db.models import BotEventType
+            engine = get_manager().engines.get(symbol)
+            if engine:
+                await engine._log_event(
+                    BotEventType.TRADE_OPENED,
+                    f"[AI Agent] {order_type} {lot} {symbol} @ {data.get('price', 0):.2f} SL={sl} TP={tp} [{rollout_mode}]",
+                )
+        except Exception as e:
+            logger.warning(f"Event log failed: {e}")
         return {
             "executed": True,
             "mode": rollout_mode,
@@ -222,6 +234,20 @@ async def close_position(ticket: int) -> dict:
                 )
             except Exception as e:
                 logger.error(f"Telegram notify failed: {e}")
+        # Log AI-initiated close to event DB
+        if pos_info:
+            try:
+                from app.bot.manager import get_manager
+                from app.db.models import BotEventType
+                sym = pos_info.get("symbol", "")
+                engine = get_manager().engines.get(sym)
+                if engine:
+                    await engine._log_event(
+                        BotEventType.TRADE_CLOSED,
+                        f"[AI Agent] CLOSE {sym} ticket={ticket} P&L=${pos_info.get('profit', 0):+.2f}",
+                    )
+            except Exception as e:
+                logger.warning(f"Event log failed: {e}")
         return {"closed": True, "ticket": ticket}
     return {"closed": False, "error": result.get("error", "Close failed")}
 
