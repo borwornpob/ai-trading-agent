@@ -18,12 +18,12 @@ router = APIRouter(prefix="/api/ai", tags=["ai"])
 
 
 @router.get("/sentiment")
-async def get_latest_sentiment():
-    bot = _get_engine()
+async def get_latest_sentiment(symbol: str | None = Query(None)):
+    bot = _get_engine(symbol)
     if not bot.sentiment_analyzer:
         return {"label": "neutral", "score": 0, "confidence": 0, "key_factors": [], "source_count": 0}
-    sentiment = await bot.sentiment_analyzer.get_latest_sentiment()
-    return sentiment.to_dict()
+    sentiment = await bot.sentiment_analyzer.get_latest_sentiment(symbol=bot.symbol)
+    return {**sentiment.to_dict(), "symbol": bot.symbol}
 
 
 @router.get("/sentiment/history")

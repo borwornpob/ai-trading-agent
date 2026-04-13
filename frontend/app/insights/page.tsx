@@ -10,6 +10,8 @@ import { PageInstructions } from "@/components/layout/PageInstructions";
 import { GoldGauge } from "@/components/ui/gold-gauge";
 import SentimentBadge from "@/components/ai/SentimentBadge";
 import OptimizationReport from "@/components/ai/OptimizationReport";
+import { SymbolTabs } from "@/components/ui/symbol-tabs";
+import { useBotStore } from "@/store/botStore";
 import {
   getLatestSentiment, getSentimentHistory, getOptimizationReport,
   runOptimization, applyOptimization, getBotStatus,
@@ -19,8 +21,10 @@ import {
 } from "recharts";
 
 export default function InsightsPage() {
+  const { symbols } = useBotStore();
+  const [activeSymbol, setActiveSymbol] = useState("GOLD");
   const [sentiment, setSentiment] = useState<{
-    label: string; score: number; confidence: number; key_factors: string[]; analyzed_at: string;
+    label: string; score: number; confidence: number; key_factors: string[]; analyzed_at: string; symbol?: string;
   } | null>(null);
   const [history, setHistory] = useState<{ sentiment_score: number; created_at: string }[]>([]);
   const [optimization, setOptimization] = useState<Record<string, unknown> | null>(null);
@@ -30,14 +34,14 @@ export default function InsightsPage() {
   const fetchData = useCallback(async () => {
     try {
       const [sentRes, histRes, optRes, statusRes] = await Promise.all([
-        getLatestSentiment(), getSentimentHistory(7), getOptimizationReport(), getBotStatus(),
+        getLatestSentiment(activeSymbol), getSentimentHistory(7), getOptimizationReport(), getBotStatus(),
       ]);
       setSentiment(sentRes.data);
       setHistory(histRes.data.history || []);
       setOptimization(optRes.data);
       setBotRunning(statusRes.data.state === "RUNNING");
     } catch (e) { console.error(e); } finally { setLoading(false); }
-  }, []);
+  }, [activeSymbol]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
@@ -73,12 +77,13 @@ export default function InsightsPage() {
       <PageHeader title="AI Insights" subtitle="Sentiment analysis and strategy optimization" />
 
       <PageInstructions
-
         items={[
-          "The sentiment gauge shows AI analysis of gold market news — from bearish to bullish with confidence score.",
+          "Select a symbol to view its AI sentiment analysis — from bearish to bullish with confidence score.",
           "Run Optimization lets AI suggest strategy parameter improvements based on recent trade performance.",
         ]}
       />
+
+      <SymbolTabs symbols={symbols} active={activeSymbol} onSelect={setActiveSymbol} />
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {/* Sentiment */}
@@ -86,7 +91,7 @@ export default function InsightsPage() {
           <CardHeader>
             <CardTitle className="text-sm font-bold flex items-center gap-2">
               <Brain className="size-4 text-primary-foreground dark:text-primary" />
-              Current Sentiment
+              {activeSymbol} Sentiment
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-5">

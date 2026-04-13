@@ -45,14 +45,26 @@ async def get_activity_log(
 
     # 1. Bot events (AI + system)
     ai_event_types = list(_AI_EVENT_MAP.keys())
-    events_q = (
-        select(BotEvent)
-        .where(BotEvent.created_at >= cutoff, BotEvent.event_type.in_(ai_event_types))
-        .order_by(desc(BotEvent.created_at))
-        .limit(500)
-    )
-    events_result = await db.execute(events_q)
-    bot_events = events_result.scalars().all()
+    try:
+        events_q = (
+            select(BotEvent)
+            .where(BotEvent.created_at >= cutoff, BotEvent.event_type.in_(ai_event_types))
+            .order_by(desc(BotEvent.created_at))
+            .limit(500)
+        )
+        events_result = await db.execute(events_q)
+        bot_events = events_result.scalars().all()
+    except Exception:
+        # Enum mismatch (e.g. STRATEGY_CHANGED not in DB yet) — fall back to no filter
+        await db.rollback()
+        events_q = (
+            select(BotEvent)
+            .where(BotEvent.created_at >= cutoff)
+            .order_by(desc(BotEvent.created_at))
+            .limit(500)
+        )
+        events_result = await db.execute(events_q)
+        bot_events = events_result.scalars().all()
 
     items: list[dict] = []
     for e in bot_events:

@@ -80,7 +80,8 @@ export const getAvailableStrategies = () => api.get("/api/strategy/available");
 export const getCurrentStrategy = () => api.get("/api/strategy/current");
 
 // AI
-export const getLatestSentiment = () => api.get("/api/ai/sentiment");
+export const getLatestSentiment = (symbol?: string) =>
+  api.get("/api/ai/sentiment", { params: symbol ? { symbol } : {} });
 export const getSentimentHistory = (days?: number) =>
   api.get("/api/ai/sentiment/history", { params: { days } });
 export const getOptimizationReport = () =>
