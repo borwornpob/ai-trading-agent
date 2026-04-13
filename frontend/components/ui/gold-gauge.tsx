@@ -104,7 +104,7 @@ export function GoldGauge({
         {clampedValue.toFixed(2)}
       </p>
       <p className="text-xs uppercase tracking-wider text-muted-foreground font-semibold mt-1">
-        {label}
+        {{ bullish: "ขาขึ้น", bearish: "ขาลง", neutral: "ทรงตัว" }[label] || label}
       </p>
     </div>
   );

@@ -22,6 +22,12 @@ const iconMap: Record<string, typeof TrendingUp> = {
   neutral: Minus,
 };
 
+const labelTH: Record<string, string> = {
+  bullish: "ขาขึ้น",
+  bearish: "ขาลง",
+  neutral: "ทรงตัว",
+};
+
 const sizeMap = {
   sm: { badge: "text-[11px] px-2 py-0.5 gap-1", icon: "size-3" },
   md: { badge: "text-xs px-2.5 py-1 gap-1.5", icon: "size-3.5" },
@@ -36,7 +42,7 @@ export default function SentimentBadge({ label, score, confidence, size = "md" }
   return (
     <span className={cn("inline-flex items-center rounded-full border font-semibold", color, s.badge)}>
       <Icon className={s.icon} />
-      <span className="capitalize">{label}</span>
+      <span>{labelTH[label] || label}</span>
       <span className="opacity-60">
         {score > 0 ? "+" : ""}
         {score.toFixed(2)}

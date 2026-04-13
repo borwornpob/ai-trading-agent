@@ -40,10 +40,10 @@ IMPORTANT context weighting rules:
 
 def get_sentiment_prompt(symbol: str = "GOLD") -> str:
     SYMBOL_FOCUS = {
-        "GOLD": "Focus on: Fed policy, USD strength, inflation data, geopolitical risk, ETF flows.\nGold is inverse to USD. High inflation = bullish gold. Rate hikes = bearish gold.",
-        "OILCash": "Focus on: OPEC decisions, supply disruptions, inventory data, geopolitical tensions, global demand.\nOil is sensitive to supply shocks and economic growth outlook.",
-        "BTCUSD": "Focus on: SEC regulation, institutional adoption, ETF flows, macro liquidity, exchange news.\nBitcoin is sensitive to regulatory news and risk-on/risk-off sentiment.",
-        "USDJPY": "Focus on: BOJ policy, Fed policy, yield differentials, risk sentiment, intervention risk.\nUSDJPY rises with US yields and risk-on sentiment.",
+        "GOLD": "Focus on: Fed policy, USD strength, inflation data, geopolitical risk, ETF flows, **Trump trade policy/tariffs**.\nGold is inverse to USD. High inflation = bullish gold. Rate hikes = bearish gold.\nTrump tariffs → trade war fears → safe-haven demand → bullish gold.\nTrump de-escalation/deals → risk-on → bearish gold.",
+        "OILCash": "Focus on: OPEC decisions, supply disruptions, inventory data, geopolitical tensions, global demand, **Trump sanctions/tariffs**.\nOil is sensitive to supply shocks and economic growth outlook.\nTrump sanctions on Iran/Venezuela → supply disruption → bullish oil.\nTrump tariffs → global recession fears → bearish oil demand.",
+        "BTCUSD": "Focus on: SEC regulation, institutional adoption, ETF flows, macro liquidity, exchange news, **Trump crypto policy**.\nBitcoin is sensitive to regulatory news and risk-on/risk-off sentiment.\nTrump pro-crypto rhetoric → bullish BTC. Trade war uncertainty → mixed (safe-haven vs risk-off).",
+        "USDJPY": "Focus on: BOJ policy, Fed policy, yield differentials, risk sentiment, intervention risk, **Trump trade war with Japan/China**.\nUSDJPY rises with US yields and risk-on sentiment.\nTrump tariffs → risk-off → yen strengthens (USDJPY falls).\nTrump deals/de-escalation → risk-on → USDJPY rises.",
     }
     focus = SYMBOL_FOCUS.get(symbol, SYMBOL_FOCUS["GOLD"])
     return f"""You are a financial market analyst specializing in {symbol}. Analyze news headlines and return ONLY a JSON object.
@@ -71,7 +71,8 @@ IMPORTANT context weighting rules:
 - If trade history shows poor win rate at current hour/day → reduce confidence
 - If historical patterns show recurring event (e.g. NFP) → factor expected volatility
 - When macro data conflicts with news sentiment, weigh macro data more heavily
-- High ATR / volatility periods → reduce confidence unless signal is very clear"""
+- High ATR / volatility periods → reduce confidence unless signal is very clear
+- **Trump/trade policy**: Tariff announcements, trade war escalation, sanctions = HIGH IMPACT. Weight these heavily — they can override technical signals. Tariff escalation = risk-off (gold up, equities down, yen up). De-escalation = risk-on."""
 
 
 OPTIMIZATION_SYSTEM_PROMPT = """You are a quantitative trading analyst specializing in gold (XAUUSD) algorithmic strategies.
