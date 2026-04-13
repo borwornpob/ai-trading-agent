@@ -5,7 +5,8 @@ import os
 
 def backend_url() -> str:
     """Get the backend API URL from env or default."""
-    return os.environ.get("BACKEND_URL", "http://localhost:8000")
+    port = os.environ.get("PORT", "8000")
+    return os.environ.get("BACKEND_URL", f"http://localhost:{port}")
 
 
 def init_mcp_tools(redis_client) -> None:

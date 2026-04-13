@@ -1085,14 +1085,17 @@ class BotEngine:
             orphans = mt5_tickets - db_tickets
             new_orphans = orphans - self._notified_orphans
             if new_orphans:
-                logger.warning(f"Orphaned positions [{self.symbol}]: {new_orphans} (in MT5, not in DB)")
+                tickets_str = ", ".join(str(t) for t in sorted(new_orphans))
+                logger.warning(f"Orphaned positions [{self.symbol}]: {tickets_str} (in MT5, not in DB)")
                 await self._log_event(
                     BotEventType.ERROR,
-                    f"Orphaned positions detected: {new_orphans}",
+                    f"Orphaned positions detected: {tickets_str}",
                 )
                 if self.notifier:
                     await self._notify(self.notifier._send(
-                        f"⚠️ <b>Orphaned positions</b> [{self.symbol}]\nTickets in MT5 but not in DB: {new_orphans}"
+                        f"⚠️ <b>พบ Position ไม่ตรงกัน</b> [{self.symbol}]\n"
+                        f"Ticket ใน MT5 แต่ไม่มีใน DB: {tickets_str}\n"
+                        f"อาจเกิดจาก Partial TP หรือเปิดจาก MT5 โดยตรง"
                     ))
                 self._notified_orphans.update(new_orphans)
             # Clean up: remove orphans that no longer exist in MT5

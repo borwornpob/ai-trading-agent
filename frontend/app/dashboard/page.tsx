@@ -98,12 +98,12 @@ export default function DashboardPage() {
         setSymbols(symbolsRes.data.symbols);
       }
 
-      if (posRes) setPositions(posRes.data.positions || []);
-      if (sentRes) setSentiment(sentRes.data);
-      if (newsRes) setNews((newsRes.data.history || []).slice(0, 5));
-      if (accRes) setAccount(accRes.data);
-      if (pnlRes) setDailyPnl(pnlRes.data);
-      if (analyticsRes) setAnalytics(analyticsRes.data);
+      if (posRes?.data?.positions) setPositions(posRes.data.positions);
+      if (sentRes?.data) setSentiment(sentRes.data);
+      if (newsRes?.data?.history) setNews(newsRes.data.history.slice(0, 5));
+      if (accRes?.data) setAccount(accRes.data);
+      if (pnlRes?.data) setDailyPnl(pnlRes.data);
+      if (analyticsRes?.data) setAnalytics(analyticsRes.data);
 
       // Load persisted events from DB (survives page refresh)
       const eventsRes = await getBotEvents({ days: 1, limit: 50 }).catch(() => null);
@@ -131,7 +131,15 @@ export default function DashboardPage() {
   useEffect(() => {
     fetchData();
     const interval = setInterval(fetchData, 30000);
-    return () => clearInterval(interval);
+    // Re-fetch immediately when tab becomes visible (after idle/sleep)
+    const onVisible = () => {
+      if (document.visibilityState === "visible") fetchData();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
   }, [fetchData]);
 
   useEffect(() => {
@@ -192,9 +200,6 @@ export default function DashboardPage() {
   }, [activeSymbol, symbolStatuses]);
 
   const isRunning = status?.state === "RUNNING";
-  const filteredPositions = viewMode === "multi"
-    ? positions
-    : positions.filter((p) => p.symbol === activeSymbol);
   const unrealizedPnL = positions.reduce((sum, p) => sum + (p.profit || 0), 0);
   const activeTick = ticks[activeSymbol] || tick;
   const activeSymbolInfo = symbols.find((s) => s.symbol === activeSymbol);
@@ -539,7 +544,7 @@ export default function DashboardPage() {
             <CardTitle className="text-sm font-bold">Open Positions</CardTitle>
           </CardHeader>
           <CardContent className="p-3 pt-0 sm:p-6 sm:pt-0">
-            {filteredPositions.length > 0 ? (
+            {positions.length > 0 ? (
               <div className="overflow-x-auto -mx-3 px-3 sm:mx-0 sm:px-0">
                 <Table>
                   <TableHeader>
@@ -554,7 +559,7 @@ export default function DashboardPage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {filteredPositions.map((p) => (
+                    {positions.map((p) => (
                       <TableRow key={p.ticket} className="hover:bg-muted/30 transition-colors">
                         <TableCell className="font-medium text-xs">{p.symbol}</TableCell>
                         <TableCell

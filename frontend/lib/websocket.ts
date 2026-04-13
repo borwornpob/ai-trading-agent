@@ -22,9 +22,13 @@ export function useWebSocket(): UseWebSocketReturn {
     new Map()
   );
   const reconnectAttemptsRef = useRef(0);
-  const maxReconnectAttempts = 10;
 
   const connect = useCallback(() => {
+    // Don't create duplicate connections
+    if (wsRef.current?.readyState === WebSocket.OPEN || wsRef.current?.readyState === WebSocket.CONNECTING) {
+      return;
+    }
+
     const baseWsUrl =
       process.env.NEXT_PUBLIC_WS_URL || "ws://localhost:8000/ws";
     const token = typeof window !== "undefined" ? localStorage.getItem("token") || "" : "";
@@ -55,14 +59,13 @@ export function useWebSocket(): UseWebSocketReturn {
 
       ws.onclose = () => {
         setIsConnected(false);
-        if (reconnectAttemptsRef.current < maxReconnectAttempts) {
-          const delay = Math.min(
-            1000 * 2 ** reconnectAttemptsRef.current,
-            30000
-          );
-          reconnectAttemptsRef.current++;
-          setTimeout(connect, delay);
-        }
+        // Always retry with backoff (cap at 30s)
+        const delay = Math.min(
+          1000 * 2 ** reconnectAttemptsRef.current,
+          30000
+        );
+        reconnectAttemptsRef.current++;
+        setTimeout(connect, delay);
       };
 
       ws.onerror = () => {
@@ -75,7 +78,20 @@ export function useWebSocket(): UseWebSocketReturn {
 
   useEffect(() => {
     connect();
+
+    // Reconnect when tab becomes visible again (after sleep/tab switch)
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        reconnectAttemptsRef.current = 0;
+        if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
+          connect();
+        }
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+
     return () => {
+      document.removeEventListener("visibilitychange", onVisibilityChange);
       wsRef.current?.close();
     };
   }, [connect]);

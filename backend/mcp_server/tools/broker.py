@@ -5,18 +5,22 @@ before reaching the MT5 Bridge. The agent cannot bypass this.
 """
 
 import redis.asyncio as redis_lib
+from loguru import logger
 from app.mt5.connector import MT5BridgeConnector
+from app.notifications.telegram import TelegramNotifier
 from mcp_server.guardrails import TradingGuardrails
 
 _connector: MT5BridgeConnector | None = None
 _guardrails: TradingGuardrails | None = None
+_notifier: TelegramNotifier | None = None
 
 
 def init_broker(redis: redis_lib.Redis) -> None:
     """Initialize broker with Redis for guardrails. Called once at agent startup."""
-    global _connector, _guardrails
+    global _connector, _guardrails, _notifier
     _connector = MT5BridgeConnector()
     _guardrails = TradingGuardrails(redis)
+    _notifier = TelegramNotifier()
 
 
 def _require_init():
@@ -59,7 +63,6 @@ async def place_order(
     )
 
     if not all(r.get("success") for r in [account_res, positions_res, tick_res]):
-        from loguru import logger
         failed = []
         if not account_res.get("success"):
             failed.append(f"account: {account_res.get('error', 'unknown')}")
@@ -146,10 +149,20 @@ async def place_order(
 
     if order_result.get("success"):
         await _guardrails.record_trade(is_win=True)  # Updated on close
+        data = order_result["data"]
+        # Send Telegram notification
+        if _notifier:
+            try:
+                await _notifier.send_trade_alert(
+                    trade_type=order_type, symbol=symbol,
+                    price=data.get("price", 0), sl=sl, tp=tp, lot=lot,
+                )
+            except Exception as e:
+                logger.error(f"Telegram notify failed: {e}")
         return {
             "executed": True,
             "mode": rollout_mode,
-            "order": order_result["data"],
+            "order": data,
         }
     else:
         return {
@@ -186,8 +199,29 @@ async def close_position(ticket: int) -> dict:
         Dict with close result.
     """
     _require_init()
+    # Get position info before closing for notification
+    positions_res = await _connector.get_positions()
+    pos_info = None
+    if positions_res.get("success"):
+        for p in positions_res.get("data", []):
+            if p.get("ticket") == ticket:
+                pos_info = p
+                break
+
     result = await _connector.close_position(ticket)
     if result.get("success"):
+        # Send Telegram notification
+        if _notifier and pos_info:
+            try:
+                await _notifier.send_trade_alert(
+                    trade_type=f"CLOSE_{pos_info.get('type', '')}",
+                    symbol=pos_info.get("symbol", ""),
+                    price=pos_info.get("price_current", 0),
+                    sl=0, tp=0, lot=pos_info.get("volume", 0),
+                    extra=f"${pos_info.get('profit', 0):+.2f}",
+                )
+            except Exception as e:
+                logger.error(f"Telegram notify failed: {e}")
         return {"closed": True, "ticket": ticket}
     return {"closed": False, "error": result.get("error", "Close failed")}
 
