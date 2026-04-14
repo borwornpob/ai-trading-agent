@@ -524,14 +524,11 @@ class BotEngine:
         regime = _detect_regime(atr_pct, adx_value)
         self.risk_manager.set_regime(regime)
 
-        # Notify on regime change
+        # Log regime change (Telegram skipped — view in dashboard instead)
         if regime != self._last_regime:
             old_regime = self._last_regime
             self._last_regime = regime
             await self._log_event(BotEventType.SIGNAL_DETECTED, f"Regime: {old_regime} → {regime}")
-            if self.notifier:
-                import asyncio as _asyncio
-                _asyncio.create_task(self.notifier.send_regime_change(self.symbol, old_regime, regime))
 
         sl_tp = self.risk_manager.calculate_sl_tp(entry_price, signal, atr)
         sl_pips = abs(entry_price - sl_tp.sl)
@@ -737,10 +734,7 @@ class BotEngine:
                 logger.info(f"Sentiment: {result.label} (score={result.score}, confidence={result.confidence})")
                 self._last_sentiment = result.to_dict()
                 await self._push_event("sentiment_update", {**result.to_dict(), "symbol": self.symbol})
-                if self.notifier:
-                    await self._notify(self.notifier.send_sentiment_alert(
-                        result.label, result.score, result.key_factors, symbol=self.symbol,
-                    ))
+                # Sentiment alerts skipped from Telegram — view in dashboard instead
         except Exception as e:
             logger.error(f"Sentiment analysis error: {e}")
 
