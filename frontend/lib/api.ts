@@ -222,6 +222,9 @@ export const getQuantSignals = () => api.get("/api/quant/signals");
 export const runStressTest = (scenario: string = "all") =>
   api.post("/api/quant/stress-test", null, { params: { scenario }, timeout: 60000 });
 
+// Bot management
+export const resetPeakBalance = () => api.post("/api/bot/reset-peak");
+
 // Health
 export const getHealth = () => api.get("/health");
 
