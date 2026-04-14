@@ -227,6 +227,18 @@ async def update_settings(data: SettingsUpdate):
     return {"status": "updated"}
 
 
+@router.post("/reset-peak", dependencies=[Depends(require_auth)])
+async def reset_peak_balance():
+    """Reset peak balance to current balance (fixes drawdown after account switch)."""
+    engine = _get_engine()
+    account = await engine.connector.get_account()
+    if not account.get("success"):
+        raise HTTPException(status_code=503, detail="Cannot get account info")
+    balance = account["data"]["balance"]
+    await engine.redis.set("circuit:peak_balance", str(balance))
+    return {"peak_balance": balance, "message": f"Peak reset to ${balance:.2f}"}
+
+
 @router.get("/events")
 async def get_events(
     days: int = Query(1, ge=1, le=30),
