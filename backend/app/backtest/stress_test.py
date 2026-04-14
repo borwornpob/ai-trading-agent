@@ -49,12 +49,12 @@ class StressResult:
     def to_dict(self) -> dict:
         return {
             "scenario": self.scenario,
-            "portfolio_impact": round(self.portfolio_impact, 4),
-            "max_drawdown": round(self.max_drawdown, 4),
+            "portfolio_impact": float(round(self.portfolio_impact, 4)),
+            "max_drawdown": float(round(self.max_drawdown, 4)),
             "worst_symbol": self.worst_symbol,
-            "worst_impact": round(self.worst_impact, 4),
-            "recovery_bars": self.recovery_bars,
-            "var_breach": self.var_breach,
+            "worst_impact": float(round(self.worst_impact, 4)),
+            "recovery_bars": int(self.recovery_bars),
+            "var_breach": bool(self.var_breach),
         }
 
 

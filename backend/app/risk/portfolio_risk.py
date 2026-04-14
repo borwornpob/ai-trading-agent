@@ -25,11 +25,11 @@ class PortfolioRiskResult:
 
     def to_dict(self) -> dict:
         return {
-            "portfolio_var_95": round(self.portfolio_var_95, 6),
-            "portfolio_var_99": round(self.portfolio_var_99, 6),
+            "portfolio_var_95": float(round(self.portfolio_var_95, 6)),
+            "portfolio_var_99": float(round(self.portfolio_var_99, 6)),
             "marginal_var": {k: round(v, 6) for k, v in self.marginal_var.items()},
             "component_var": {k: round(v, 6) for k, v in self.component_var.items()},
-            "diversification_ratio": round(self.diversification_ratio, 4),
+            "diversification_ratio": float(round(self.diversification_ratio, 4)),
             "max_position_by_var": {k: round(v, 4) for k, v in self.max_position_by_var.items()},
         }
 

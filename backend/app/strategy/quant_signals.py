@@ -28,11 +28,11 @@ class QuantSignals:
 
     def to_dict(self) -> dict:
         return {
-            "z_score": round(self.z_score, 4),
-            "half_life": round(self.half_life, 2),
-            "hurst": round(self.hurst, 4),
-            "rolling_sharpe": round(self.rolling_sharpe, 4),
-            "momentum_factor": round(self.momentum_factor, 4),
+            "z_score": float(round(self.z_score, 4)),
+            "half_life": float(round(self.half_life, 2)),
+            "hurst": float(round(self.hurst, 4)),
+            "rolling_sharpe": float(round(self.rolling_sharpe, 4)),
+            "momentum_factor": float(round(self.momentum_factor, 4)),
             "vol_breakout": self.vol_breakout,
             "regime_hint": self.regime_hint,
         }

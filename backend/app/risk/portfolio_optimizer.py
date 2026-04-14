@@ -28,9 +28,9 @@ class PortfolioAllocation:
     def to_dict(self) -> dict:
         return {
             "weights": {k: round(v, 4) for k, v in self.weights.items()},
-            "expected_return": round(self.expected_return, 4),
-            "expected_vol": round(self.expected_vol, 4),
-            "sharpe_ratio": round(self.sharpe_ratio, 4),
+            "expected_return": float(round(self.expected_return, 4)),
+            "expected_vol": float(round(self.expected_vol, 4)),
+            "sharpe_ratio": float(round(self.sharpe_ratio, 4)),
             "method": self.method,
             "rebalance_needed": self.rebalance_needed,
         }

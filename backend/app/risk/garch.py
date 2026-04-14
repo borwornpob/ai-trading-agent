@@ -26,13 +26,13 @@ class GARCHResult:
 
     def to_dict(self) -> dict:
         return {
-            "current_vol": round(self.current_vol, 6),
-            "forecast_1": round(self.forecast_1, 6),
-            "forecast_5": round(self.forecast_5, 6),
-            "long_run_vol": round(self.long_run_vol, 6),
+            "current_vol": float(round(self.current_vol, 6)),
+            "forecast_1": float(round(self.forecast_1, 6)),
+            "forecast_5": float(round(self.forecast_5, 6)),
+            "long_run_vol": float(round(self.long_run_vol, 6)),
             "method": self.method,
-            "alpha": round(self.alpha, 4),
-            "beta": round(self.beta, 4),
+            "alpha": float(round(self.alpha, 4)),
+            "beta": float(round(self.beta, 4)),
         }
 
     @property

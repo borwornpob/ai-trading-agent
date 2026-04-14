@@ -67,13 +67,22 @@ export default function QuantPage() {
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
+  const [stressError, setStressError] = useState<string | null>(null);
+
   const handleStressTest = async () => {
     setStressLoading(true);
+    setStressError(null);
     try {
       const res = await runStressTest("all");
-      setStressResults(res.data.results || []);
+      const results = res.data.results || [];
+      if (results.length === 0) {
+        setStressError("No results — bot must be running with market data available");
+      }
+      setStressResults(results.length > 0 ? results : null);
     } catch (e) {
-      console.error("Stress test failed:", e);
+      const msg = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+      setStressError(msg || "Stress test failed — check backend logs");
+      setStressResults(null);
     } finally {
       setStressLoading(false);
     }
@@ -260,6 +269,9 @@ export default function QuantPage() {
                   {stressLoading ? <Loader2 className="size-4 mr-1.5 animate-spin" /> : <AlertTriangle className="size-4 mr-1.5" />}
                   {stressLoading ? "Running..." : "Run Stress Tests"}
                 </Button>
+                {stressError && (
+                  <p className="text-xs text-red-400 font-medium">{stressError}</p>
+                )}
               </div>
             )}
           </CardContent>

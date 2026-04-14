@@ -27,13 +27,13 @@ class VaRResult:
 
     def to_dict(self) -> dict:
         return {
-            "var_95": round(self.var_95, 6),
-            "var_99": round(self.var_99, 6),
-            "cvar_95": round(self.cvar_95, 6),
-            "cvar_99": round(self.cvar_99, 6),
+            "var_95": float(round(self.var_95, 6)),
+            "var_99": float(round(self.var_99, 6)),
+            "cvar_95": float(round(self.cvar_95, 6)),
+            "cvar_99": float(round(self.cvar_99, 6)),
             "method": self.method,
             "window": self.window,
-            "annualized_vol": round(self.annualized_vol, 6),
+            "annualized_vol": float(round(self.annualized_vol, 6)),
         }
 
 
