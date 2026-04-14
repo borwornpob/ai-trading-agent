@@ -130,11 +130,15 @@ def check_correlation_conflict(
     Check if a new trade would conflict with existing positions on correlated symbols.
     Returns (has_conflict, reason).
     """
+    # Resolve aliases (e.g., GOLDmicro → GOLD) for correlation lookup
+    from app.config import get_canonical_symbol
+    canonical = get_canonical_symbol(symbol)
+
     for (sym_a, sym_b), corr in CORRELATIONS.items():
         other = None
-        if symbol == sym_a:
+        if canonical == sym_a:
             other = sym_b
-        elif symbol == sym_b:
+        elif canonical == sym_b:
             other = sym_a
         else:
             continue

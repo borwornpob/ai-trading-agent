@@ -66,6 +66,45 @@ SYMBOL_PROFILES: dict[str, dict] = {
     },
 }
 
+# ─── Symbol Aliases (broker-specific names → canonical profile) ────────────
+# XM micro accounts use suffixed symbol names (e.g., GOLDmicro, OILCashmicro)
+SYMBOL_ALIASES: dict[str, str] = {
+    "GOLDmicro": "GOLD",
+    "OILCashmicro": "OILCash",
+    "BTCUSDmicro": "BTCUSD",
+    "USDJPYmicro": "USDJPY",
+}
+
+
+def get_symbol_profile(symbol: str) -> dict:
+    """Get profile for a symbol, resolving aliases (e.g., GOLDmicro → GOLD)."""
+    canonical = SYMBOL_ALIASES.get(symbol, symbol)
+    profile = SYMBOL_PROFILES.get(canonical, SYMBOL_PROFILES.get(symbol, {}))
+    if not profile:
+        # Fallback: try stripping common suffixes
+        for suffix in ("micro", "m", ".micro"):
+            base = symbol.replace(suffix, "")
+            if base in SYMBOL_PROFILES:
+                return SYMBOL_PROFILES[base]
+    return profile
+
+
+def get_canonical_symbol(symbol: str) -> str:
+    """Resolve alias to canonical symbol name (e.g., GOLDmicro → GOLD)."""
+    return SYMBOL_ALIASES.get(symbol, symbol)
+
+
+# Auto-register aliased profiles so SYMBOL_PROFILES["GOLDmicro"] works directly
+for _alias, _canonical in SYMBOL_ALIASES.items():
+    if _canonical in SYMBOL_PROFILES and _alias not in SYMBOL_PROFILES:
+        _profile = SYMBOL_PROFILES[_canonical].copy()
+        _profile["display_name"] = f"{_profile['display_name']} (Micro)"
+        _profile["canonical"] = _canonical
+        # Micro accounts typically have smaller lot sizes
+        _profile["default_lot"] = min(_profile["default_lot"], 0.1)
+        _profile["max_lot"] = min(_profile["max_lot"], 1.0)
+        SYMBOL_PROFILES[_alias] = _profile
+
 
 # Session profiles — SL/TP multiplier overrides by trading session
 SESSION_PROFILES = {

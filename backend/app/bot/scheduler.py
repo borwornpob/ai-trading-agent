@@ -24,8 +24,10 @@ MARKET_SCHEDULE = {
 
 def is_market_open(symbol: str) -> bool:
     """Check if the market for *symbol* is likely open on MT5."""
+    from app.config import get_canonical_symbol
     now = datetime.utcnow()
-    schedule = MARKET_SCHEDULE.get(symbol, {"weekend": True, "daily_close": None})
+    canonical = get_canonical_symbol(symbol)
+    schedule = MARKET_SCHEDULE.get(canonical, MARKET_SCHEDULE.get(symbol, {"weekend": True, "daily_close": None}))
 
     # Weekend check (Saturday 00:00 – Sunday 23:59 UTC, approximate)
     if schedule["weekend"] and now.weekday() >= 5:
