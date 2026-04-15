@@ -310,28 +310,32 @@ class BotScheduler:
         except Exception as e:
             logger.debug(f"Redis trading_mode read failed: {e}")
 
+        # Filter to symbols with open markets
+        active_symbols = [sym for sym in symbols if is_market_open(sym)]
+        skipped = [sym for sym in symbols if sym not in active_symbols]
+        if skipped:
+            logger.debug(f"Candle job: skipped {skipped} (market closed)")
+        if not active_symbols:
+            return
+
         if trading_mode == "strategy":
-            # Strategy-first: rule-based strategies generate signals, AI is filter only
-            # (process_candle runs _detect_regime internally)
-            for sym in symbols:
+            for sym in active_symbols:
                 engine = self._engines.get(sym)
                 if engine and engine.state.value == "RUNNING":
                     try:
                         await engine.process_candle()
                     except Exception as e:
                         logger.error(f"process_candle error [{sym}]: {e}")
-            # AI analysis in parallel (for dashboard display, not trading)
-            asyncio.create_task(self._run_ai_agent(symbols))
+            asyncio.create_task(self._run_ai_agent(active_symbols))
         else:
-            # AI autonomous: run regime detection (process_candle is skipped)
-            for sym in symbols:
+            for sym in active_symbols:
                 engine = self._engines.get(sym)
                 if engine and engine.state.value == "RUNNING":
                     try:
                         await engine._detect_regime()
                     except Exception as e:
                         logger.debug(f"Regime detection [{sym}]: {e}")
-            await self._run_ai_agent(symbols)
+            await self._run_ai_agent(active_symbols)
 
     async def _sentiment_job(self):
         """Fetch news sentiment only for symbols whose market is open and bot is running.
@@ -373,6 +377,9 @@ class BotScheduler:
         async def _run_for_symbol(sym: str):
             engine = self._engines.get(sym)
             if not engine or engine.state.value != "RUNNING":
+                return
+            if not is_market_open(sym):
+                logger.debug(f"AI agent skipped [{sym}]: market closed")
                 return
             try:
                 result = await run_agent(
