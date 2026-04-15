@@ -130,7 +130,7 @@ Profit factor: {pf:.2f}"""
                     f"apply={should_apply}"
                 )
 
-        now = datetime.now(UTC)
+        now = datetime.utcnow()
         period_start = now - timedelta(days=7)
 
         # Save to DB
