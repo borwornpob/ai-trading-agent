@@ -14,18 +14,32 @@ import {
 import {
   TrendingUp, Layers, Activity, Play, Square, ShieldAlert, Wifi, WifiOff, DollarSign, Loader2,
 } from "lucide-react";
-import Markdown from "react-markdown";
+import dynamic from "next/dynamic";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { PageInstructions } from "@/components/layout/PageInstructions";
 import { StatCard } from "@/components/ui/stat-card";
 import { AnimatedCounter } from "@/components/ui/animated-counter";
 import SentimentBadge from "@/components/ai/SentimentBadge";
 import NewsCard from "@/components/ai/NewsCard";
-import PriceChart from "@/components/chart/PriceChart";
 import EventFeed from "@/components/dashboard/EventFeed";
-import {
-  AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-} from "recharts";
+
+const Markdown = dynamic(() => import("react-markdown"), { ssr: false });
+const PriceChart = dynamic(() => import("@/components/chart/PriceChart"), { ssr: false, loading: () => <Skeleton className="h-56 sm:h-72 xl:h-80 rounded-xl" /> });
+const LazyRecharts = dynamic(() => import("recharts").then((mod) => {
+  const { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } = mod;
+  return { default: ({ data }: { data: { date: string; equity: number }[] }) => (
+    <ResponsiveContainer width="100%" height={180}>
+      <AreaChart data={data}>
+        <defs><linearGradient id="eqGrad" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#9fe870" stopOpacity={0.3} /><stop offset="100%" stopColor="#9fe870" stopOpacity={0} /></linearGradient></defs>
+        <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+        <XAxis dataKey="date" fontSize={10} className="fill-muted-foreground" />
+        <YAxis fontSize={10} className="fill-muted-foreground" />
+        <Tooltip contentStyle={{ backgroundColor: "var(--popover)", border: "1px solid var(--border)", borderRadius: "12px", color: "var(--foreground)" }} />
+        <Area type="monotone" dataKey="equity" stroke="#9fe870" fill="url(#eqGrad)" strokeWidth={2} />
+      </AreaChart>
+    </ResponsiveContainer>
+  )};
+}), { ssr: false, loading: () => <Skeleton className="h-[180px] rounded-xl" /> });
 import {
   getBotStatus, startBot, stopBot, emergencyStop, getPositions,
   getLatestSentiment, getSentimentHistory, updateSettings, updateStrategy, getAccount,
@@ -58,10 +72,23 @@ const STRATEGY_TH: Record<string, string> = {
 };
 
 export default function DashboardPage() {
-  const {
-    activeSymbol, symbols, status, symbolStatuses, positions, sentiment, tick, ticks, events,
-    setActiveSymbol, setSymbols, setStatus, setSymbolStatuses, setPositions, setSentiment, setTick, addEvent,
-  } = useBotStore();
+  const activeSymbol = useBotStore((s) => s.activeSymbol);
+  const symbols = useBotStore((s) => s.symbols);
+  const status = useBotStore((s) => s.status);
+  const symbolStatuses = useBotStore((s) => s.symbolStatuses);
+  const positions = useBotStore((s) => s.positions);
+  const sentiment = useBotStore((s) => s.sentiment);
+  const tick = useBotStore((s) => s.tick);
+  const ticks = useBotStore((s) => s.ticks);
+  const events = useBotStore((s) => s.events);
+  const setActiveSymbol = useBotStore((s) => s.setActiveSymbol);
+  const setSymbols = useBotStore((s) => s.setSymbols);
+  const setStatus = useBotStore((s) => s.setStatus);
+  const setSymbolStatuses = useBotStore((s) => s.setSymbolStatuses);
+  const setPositions = useBotStore((s) => s.setPositions);
+  const setSentiment = useBotStore((s) => s.setSentiment);
+  const setTick = useBotStore((s) => s.setTick);
+  const addEvent = useBotStore((s) => s.addEvent);
   const [loading, setLoading] = useState(true);
   const [account, setAccount] = useState<{ balance: number; equity: number; margin: number; free_margin: number; profit: number; peak_balance?: number; drawdown_pct?: number; accounts?: { connector: string; balance: number; equity: number; currency: string }[] } | null>(null);
   const [dailyPnl, setDailyPnl] = useState<{ daily_pnl: number; trade_count: number; wins: number; losses: number } | null>(null);
@@ -299,7 +326,7 @@ export default function DashboardPage() {
 
       {/* Account Balances Bar */}
       {account && (
-        <div className="flex flex-wrap gap-4 items-center px-4 py-3 rounded-2xl border border-border bg-card animate-fade-in">
+        <div className="flex flex-wrap gap-4 items-center px-4 py-3 rounded-2xl border border-border bg-card">
           {account.accounts && account.accounts.length > 1 ? (
             account.accounts.map((acc, i) => (
               <div key={i} className="flex items-center gap-3">
@@ -333,7 +360,7 @@ export default function DashboardPage() {
       )}
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-3 lg:grid-cols-6 gap-2 animate-fade-in" style={{ animationDelay: "0.05s" }}>
+      <div className="grid grid-cols-3 lg:grid-cols-6 gap-2">
         <StatCard
           icon={TrendingUp}
           label="Unrealized P&L"
@@ -388,7 +415,7 @@ export default function DashboardPage() {
       </div>
 
       {/* Controls + Price Chart */}
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-4 xl:gap-6 animate-fade-in" style={{ animationDelay: "0.1s" }}>
+      <div className="grid grid-cols-1 lg:grid-cols-4 gap-4 xl:gap-6">
         <Card className="order-1 lg:order-2">
           <CardHeader className="p-3 sm:p-6">
             <CardTitle className="text-sm font-bold">Controls</CardTitle>
@@ -547,7 +574,7 @@ export default function DashboardPage() {
       </div>
 
       {/* AI Decision + News + Positions + Events — single column */}
-      <div className="space-y-4 xl:space-y-6 animate-fade-in" style={{ animationDelay: "0.15s" }}>
+      <div className="space-y-4 xl:space-y-6">
         {/* AI Decision */}
         {status?.ai_decision && (
           <Card>
@@ -714,37 +741,13 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          {(analytics.equity_curve as {time: string; equity: number}[])?.length > 1 && (
+          {(analytics.equity_curve as {date: string; equity: number}[])?.length > 1 && (
             <Card>
               <CardHeader className="p-3 sm:p-6">
                 <CardTitle className="text-sm font-bold">Equity Curve</CardTitle>
               </CardHeader>
               <CardContent className="h-48 p-3 pt-0 sm:p-6 sm:pt-0">
-                <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={analytics.equity_curve as {time: string; equity: number}[]}>
-                    <defs>
-                      <linearGradient id="eqGradient" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor="#9fe870" stopOpacity={0.3} />
-                        <stop offset="100%" stopColor="#9fe870" stopOpacity={0} />
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
-                    <XAxis dataKey="time" hide />
-                    <YAxis className="fill-muted-foreground" fontSize={10} />
-                    <Tooltip
-                      contentStyle={{
-                        backgroundColor: "var(--popover)",
-                        border: "1px solid var(--border)",
-                        borderRadius: "12px",
-                        color: "var(--foreground)",
-                        fontSize: "12px",
-                      }}
-                      formatter={(value) => [`$${Number(value).toFixed(2)}`, "Equity"]}
-                      labelFormatter={() => ""}
-                    />
-                    <Area type="monotone" dataKey="equity" stroke="#9fe870" strokeWidth={2} fill="url(#eqGradient)" />
-                  </AreaChart>
-                </ResponsiveContainer>
+                <LazyRecharts data={analytics.equity_curve as {date: string; equity: number}[]} />
               </CardContent>
             </Card>
           )}

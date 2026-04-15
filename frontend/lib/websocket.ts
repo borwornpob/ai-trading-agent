@@ -9,7 +9,6 @@ type WSMessage = {
 
 type UseWebSocketReturn = {
   isConnected: boolean;
-  lastMessage: WSMessage | null;
   subscribe: (channel: string, callback: (data: unknown) => void) => void;
   unsubscribe: (channel: string) => void;
 };
@@ -17,11 +16,11 @@ type UseWebSocketReturn = {
 export function useWebSocket(): UseWebSocketReturn {
   const wsRef = useRef<WebSocket | null>(null);
   const [isConnected, setIsConnected] = useState(false);
-  const [lastMessage, setLastMessage] = useState<WSMessage | null>(null);
   const subscribersRef = useRef<Map<string, (data: unknown) => void>>(
     new Map()
   );
   const reconnectAttemptsRef = useRef(0);
+  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const connect = useCallback(() => {
     // Don't create duplicate connections
@@ -46,8 +45,6 @@ export function useWebSocket(): UseWebSocketReturn {
       ws.onmessage = (event) => {
         try {
           const msg: WSMessage = JSON.parse(event.data);
-          setLastMessage(msg);
-
           const callback = subscribersRef.current.get(msg.channel);
           if (callback) {
             callback(msg.data);
@@ -59,13 +56,12 @@ export function useWebSocket(): UseWebSocketReturn {
 
       ws.onclose = () => {
         setIsConnected(false);
-        // Always retry with backoff (cap at 30s)
         const delay = Math.min(
           1000 * 2 ** reconnectAttemptsRef.current,
           30000
         );
         reconnectAttemptsRef.current++;
-        setTimeout(connect, delay);
+        reconnectTimerRef.current = setTimeout(connect, delay);
       };
 
       ws.onerror = () => {
@@ -79,7 +75,6 @@ export function useWebSocket(): UseWebSocketReturn {
   useEffect(() => {
     connect();
 
-    // Reconnect when tab becomes visible again (after sleep/tab switch)
     const onVisibilityChange = () => {
       if (document.visibilityState === "visible") {
         reconnectAttemptsRef.current = 0;
@@ -92,6 +87,7 @@ export function useWebSocket(): UseWebSocketReturn {
 
     return () => {
       document.removeEventListener("visibilitychange", onVisibilityChange);
+      if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
       wsRef.current?.close();
     };
   }, [connect]);
@@ -107,5 +103,5 @@ export function useWebSocket(): UseWebSocketReturn {
     subscribersRef.current.delete(channel);
   }, []);
 
-  return { isConnected, lastMessage, subscribe, unsubscribe };
+  return { isConnected, subscribe, unsubscribe };
 }
