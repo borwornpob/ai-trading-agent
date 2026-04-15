@@ -370,10 +370,10 @@ class BotScheduler:
                         break  # one notification is enough
             return
 
-        for sym in symbols:
+        async def _run_for_symbol(sym: str):
             engine = self._engines.get(sym)
             if not engine or engine.state.value != "RUNNING":
-                continue
+                return
             try:
                 result = await run_agent(
                     job_type="candle_analysis",
@@ -421,6 +421,8 @@ class BotScheduler:
                 })
             except Exception as e:
                 logger.warning(f"AI agent [{sym}] error: {e}")
+
+        await asyncio.gather(*[_run_for_symbol(sym) for sym in symbols], return_exceptions=True)
 
     async def _sync_job(self):
         tasks = [e.sync_positions() for e in self._engines.values() if e.state.value == "RUNNING"]

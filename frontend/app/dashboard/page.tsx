@@ -75,7 +75,7 @@ export default function DashboardPage() {
 
   const fetchData = useCallback(async () => {
     try {
-      const [statusRes, symbolsRes, posRes, sentRes, newsRes, accRes, pnlRes, analyticsRes] = await Promise.all([
+      const [statusRes, symbolsRes, posRes, sentRes, newsRes, accRes, pnlRes, analyticsRes, eventsRes] = await Promise.all([
         getBotStatus().catch(() => null),
         getSymbols().catch(() => null),
         getPositions().catch(() => null),
@@ -84,6 +84,7 @@ export default function DashboardPage() {
         getAccount().catch(() => null),
         getDailyPnl().catch(() => null),
         getAnalytics(undefined, 30).catch(() => null),
+        getBotEvents({ days: 1, limit: 50 }).catch(() => null),
       ]);
 
       // Aggregate status response has { symbols: { XAUUSD: {...}, ... }, active_count, total_count }
@@ -115,7 +116,6 @@ export default function DashboardPage() {
       if (analyticsRes?.data) setAnalytics(analyticsRes.data);
 
       // Load persisted events from DB (survives page refresh)
-      const eventsRes = await getBotEvents({ days: 1, limit: 50 }).catch(() => null);
       if (eventsRes?.data?.events) {
         const dbEvents = eventsRes.data.events.map((e: { type: string; message: string; created_at: string }) => ({
           type: e.type,
@@ -123,7 +123,7 @@ export default function DashboardPage() {
           timestamp: e.created_at,
         }));
         // Only seed if store is empty (don't overwrite live WS events)
-        if (events.length === 0 && dbEvents.length > 0) {
+        if (useBotStore.getState().events.length === 0 && dbEvents.length > 0) {
           for (const ev of dbEvents.reverse()) {
             addEvent(ev);
           }
