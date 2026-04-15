@@ -78,12 +78,12 @@ async def set_rollout_mode(
 
     old_mode = os.environ.get("ROLLOUT_MODE", settings.rollout_mode)
 
-    # Enforce sequential transitions: shadow→paper→micro→live
+    # Enforce sequential transitions (forward) + allow emergency rollback to any lower mode
     valid_transitions = {
         "shadow": {"paper"},
         "paper": {"shadow", "micro"},
-        "micro": {"paper", "live"},
-        "live": {"micro"},
+        "micro": {"shadow", "paper", "live"},
+        "live": {"shadow", "micro"},
     }
     if old_mode != req.mode and req.mode not in valid_transitions.get(old_mode, set()):
         raise HTTPException(
