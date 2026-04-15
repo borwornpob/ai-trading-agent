@@ -71,8 +71,8 @@ class SettingsUpdate(BaseModel):
     max_risk_per_trade: float | None = Field(None, ge=0.001, le=0.10)
     max_daily_loss: float | None = Field(None, ge=0.01, le=0.20)
     max_concurrent_trades: int | None = Field(None, ge=1, le=20)
-    max_lot: float | None = Field(None, ge=0.01, le=100.0)
-    fixed_lot: float | None = Field(None, ge=0.01, le=100.0)
+    max_lot: float | None = Field(None, ge=0.01, le=1.0)
+    fixed_lot: float | None = Field(None, ge=0.01, le=1.0)
     lot_mode: Literal["fixed", "auto"] | None = None
 
 

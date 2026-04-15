@@ -39,7 +39,10 @@ TIMEFRAMES = {
 
 # --- Auth dependency ---
 async def verify_api_key(x_bridge_key: str = Header(...)):
-    if x_bridge_key != BRIDGE_API_KEY:
+    import hmac
+    if not BRIDGE_API_KEY:
+        raise HTTPException(status_code=503, detail="Bridge API key not configured")
+    if not hmac.compare_digest(x_bridge_key, BRIDGE_API_KEY):
         raise HTTPException(status_code=401, detail="Invalid API key")
 
 
