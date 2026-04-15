@@ -301,14 +301,14 @@ class BotScheduler:
             if first_engine and first_engine.redis:
                 cached_mode = await first_engine.redis.get("trading_mode")
                 if cached_mode:
-                    trading_mode = cached_mode if isinstance(cached_mode, str) else cached_mode.decode()
-                    settings.trading_mode = trading_mode
+                    cached = cached_mode if isinstance(cached_mode, str) else cached_mode.decode()
+                    if cached in ("strategy", "ai_autonomous"):
+                        trading_mode = cached
+                        settings.trading_mode = cached
+                    else:
+                        logger.warning(f"Invalid trading_mode in Redis: '{cached}', ignoring")
         except Exception as e:
             logger.debug(f"Redis trading_mode read failed: {e}")
-
-        if trading_mode not in ("strategy", "ai_autonomous"):
-            logger.warning(f"Invalid trading_mode '{trading_mode}', defaulting to 'strategy'")
-            trading_mode = "strategy"
 
         if trading_mode == "strategy":
             # Strategy-first: rule-based strategies generate signals, AI is filter only
@@ -431,7 +431,7 @@ class BotScheduler:
         logger.info("Weekly optimization triggered")
         # Run optimization on first engine that has an optimizer
         for engine in self._engines.values():
-            if not engine._optimizer:
+            if not engine._optimizer or engine.strategy is None:
                 continue
             try:
                 result = await engine._optimizer.optimize(engine.strategy.get_params())

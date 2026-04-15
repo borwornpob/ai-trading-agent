@@ -287,6 +287,7 @@ class BotEngine:
         """Main trading logic — called every candle close."""
         # Skip if in AI autonomous mode (AI agent handles trading)
         if settings.trading_mode == "ai_autonomous" or self.strategy is None:
+            logger.debug(f"process_candle skipped [{self.symbol}]: mode={settings.trading_mode}, strategy={'None' if self.strategy is None else self.strategy.name}")
             return
 
         # Auto-recovery: check if paused bot can resume after cooldown

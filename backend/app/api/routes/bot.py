@@ -9,6 +9,8 @@ from typing import Literal
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
+from loguru import logger
+
 from app.auth import require_auth
 from app.config import settings
 from sqlalchemy import desc, select
@@ -184,16 +186,16 @@ async def update_strategy(data: StrategyUpdate):
     if data.name == "ai_autonomous":
         try:
             await engine.redis.set("trading_mode", "ai_autonomous")
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Redis trading_mode write failed: {e}")
         settings.trading_mode = "ai_autonomous"
         engine.strategy = None
         return {"status": "updated", "strategy": "ai_autonomous", "symbol": engine.symbol}
     # Switch back to strategy-first mode
     try:
         await engine.redis.set("trading_mode", "strategy")
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"Redis trading_mode write failed: {e}")
     settings.trading_mode = "strategy"
     try:
         await engine.update_strategy(data.name, data.params)
