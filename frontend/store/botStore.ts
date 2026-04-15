@@ -97,6 +97,7 @@ type BotStore = {
   setSentiment: (sentiment: Sentiment & { symbol?: string }) => void;
   setTick: (tick: Tick) => void;
   addEvent: (event: BotEvent) => void;
+  seedEvents: (events: BotEvent[]) => void;
   setWsConnected: (connected: boolean) => void;
   setLastSyncAt: (time: string) => void;
   markEventsRead: () => void;
@@ -152,6 +153,8 @@ export const useBotStore = create<BotStore>((set, get) => ({
       events: [event, ...state.events].slice(0, 50),
       unreadEventCount: state.unreadEventCount + 1,
     })),
+  seedEvents: (events) =>
+    set({ events: events.slice(0, 50) }),
   setWsConnected: (connected) => set({ wsConnected: connected }),
   setLastSyncAt: (time) => set({ lastSyncAt: time }),
   markEventsRead: () => set({ unreadEventCount: 0 }),
