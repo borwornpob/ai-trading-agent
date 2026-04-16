@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useTheme } from "next-themes";
-import { createChart, IChartApi, ISeriesApi, CandlestickData, ColorType, CandlestickSeries, LineSeries, SeriesMarker, Time, createSeriesMarkers, ISeriesMarkersPluginApi } from "lightweight-charts";
+import { createChart, IChartApi, ISeriesApi, IPriceLine, CandlestickData, ColorType, CandlestickSeries, LineSeries, SeriesMarker, Time, createSeriesMarkers, ISeriesMarkersPluginApi } from "lightweight-charts";
 import { getOHLCV, getTradeHistory, getPositions } from "@/lib/api";
 
 type Props = {
@@ -36,6 +36,7 @@ export default function PriceChart({ symbol, timeframe, tick, emaFast = 20, emaS
   const emaFastRef = useRef<ISeriesApi<"Line"> | null>(null);
   const emaSlowRef = useRef<ISeriesApi<"Line"> | null>(null);
   const markersRef = useRef<ISeriesMarkersPluginApi<Time> | null>(null);
+  const priceLinesRef = useRef<IPriceLine[]>([]);
   const [loading, setLoading] = useState(true);
   const lastCandleRef = useRef<{ time: number; open: number; high: number; low: number; close: number } | null>(null);
   const initialLoadRef = useRef(true);
@@ -194,7 +195,13 @@ export default function PriceChart({ symbol, timeframe, tick, emaFast = 20, emaS
               }
             }
 
-            // Open positions — entry arrow only (strict symbol filter)
+            // Open positions — entry arrow + TP/SL price lines (strict symbol filter)
+            // Clear previous TP/SL/Entry price lines
+            priceLinesRef.current.forEach((line: IPriceLine) => {
+              try { seriesRef.current?.removePriceLine(line); } catch { /* already removed */ }
+            });
+            priceLinesRef.current = [];
+
             if (posRes?.data?.positions) {
               for (const p of posRes.data.positions) {
                 if (p.symbol !== symbol) continue;
@@ -207,6 +214,45 @@ export default function PriceChart({ symbol, timeframe, tick, emaFast = 20, emaS
                     shape: p.type === "BUY" ? "arrowUp" : "arrowDown",
                     text: `${p.type} ${p.lot} (open)`,
                   });
+                }
+
+                // TP line
+                if (p.tp && p.tp > 0 && seriesRef.current) {
+                  const tpLine = seriesRef.current.createPriceLine({
+                    price: p.tp,
+                    color: "#4ade80",
+                    lineWidth: 1,
+                    lineStyle: 2, // dashed
+                    axisLabelVisible: true,
+                    title: `TP ${p.tp}`,
+                  });
+                  priceLinesRef.current.push(tpLine);
+                }
+
+                // SL line
+                if (p.sl && p.sl > 0 && seriesRef.current) {
+                  const slLine = seriesRef.current.createPriceLine({
+                    price: p.sl,
+                    color: "#d03238",
+                    lineWidth: 1,
+                    lineStyle: 2, // dashed
+                    axisLabelVisible: true,
+                    title: `SL ${p.sl}`,
+                  });
+                  priceLinesRef.current.push(slLine);
+                }
+
+                // Entry line
+                if (p.open_price && seriesRef.current) {
+                  const entryLine = seriesRef.current.createPriceLine({
+                    price: p.open_price,
+                    color: p.type === "BUY" ? "#3b82f6" : "#f59e0b",
+                    lineWidth: 1,
+                    lineStyle: 1, // dotted
+                    axisLabelVisible: true,
+                    title: `Entry ${p.open_price}`,
+                  });
+                  priceLinesRef.current.push(entryLine);
                 }
               }
             }
