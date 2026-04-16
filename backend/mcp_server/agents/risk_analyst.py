@@ -38,7 +38,8 @@ If no trade is proposed, provide a general portfolio risk assessment.
 - **CAUTION**: A specific risk factor exists (high drawdown, correlated exposure, losing streak) — recommend reduced lot, not blocking the trade.
 - **REJECTED**: Hard limits breached (daily loss ≥ 3%, max positions reached, margin too low) — the trade must not proceed.
 
-Default to APPROVED when all risk checks pass. Do not add artificial caution."""
+Default to APPROVED when all risk checks pass. Do not add artificial caution.
+ห้ามใช้ emoji ห้ามใช้ markdown table ใช้ bullet list แทน"""
 
 TOOL_NAMES = [
     "get_account",
