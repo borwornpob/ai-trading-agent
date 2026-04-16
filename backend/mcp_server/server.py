@@ -93,11 +93,38 @@ def create_server() -> FastMCP:
         """Calculate stop-loss and take-profit levels."""
         return risk.calculate_sl_tp(symbol, entry_price, signal, atr)
 
-    # ─── Broker Tools (read-only — execution disabled for AI agent) ────
+    # ─── Broker Tools ─────────────────────────────────────────────────
 
-    # NOTE: place_order, modify_position, close_position REMOVED from AI agent.
-    # Trading execution is handled by the strategy engine (engine.process_candle).
-    # AI agent is an analyst, not a decision-maker.
+    @mcp.tool()
+    async def place_order(
+        symbol: str,
+        order_type: str,
+        lot: float,
+        sl: float,
+        tp: float,
+        comment: str = "",
+    ) -> dict:
+        """Place a trade order. Passes through non-bypassable guardrails.
+
+        Args:
+            symbol: Trading symbol (e.g. "GOLDmicro", "USDJPY")
+            order_type: "BUY" or "SELL"
+            lot: Lot size (will be capped by rollout mode)
+            sl: Stop-loss price
+            tp: Take-profit price
+            comment: Optional order comment
+        """
+        return await broker.place_order(symbol, order_type, lot, sl, tp, comment)
+
+    @mcp.tool()
+    async def modify_position(ticket: int, sl: float | None = None, tp: float | None = None) -> dict:
+        """Modify stop-loss and/or take-profit of an existing position."""
+        return await broker.modify_position(ticket, sl, tp)
+
+    @mcp.tool()
+    async def close_position(ticket: int) -> dict:
+        """Close an open position by ticket number."""
+        return await broker.close_position(ticket)
 
     @mcp.tool()
     async def get_positions(symbol: str | None = None) -> dict:
