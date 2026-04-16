@@ -57,7 +57,7 @@ class TestBotEngine:
     async def test_get_status(self, engine):
         status = engine.get_status()
         assert status["state"] == "STOPPED"
-        assert status["strategy"] == "ai_autonomous"
+        assert status["strategy"] == "ema_crossover"
         assert status["symbol"] == "GOLD"
         assert "max_risk_per_trade" in status
 
@@ -102,8 +102,9 @@ class TestBotEngine:
         )
         engine.strategy.calculate = MagicMock(return_value=df)
 
-        # Disable MTF filter to avoid H1 data dependency
-        with patch.object(settings, "use_mtf_filter", False):
+        # Disable MTF filter and confirmation gate to avoid data dependencies
+        with patch.object(settings, "use_mtf_filter", False), \
+             patch.dict("sys.modules", {"app.ai.confirmation_gate": None}):
             await engine.process_candle()
 
         # Paper position should be created

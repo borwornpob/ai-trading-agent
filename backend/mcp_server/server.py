@@ -12,8 +12,22 @@ Usage:
 
 from mcp.server.fastmcp import FastMCP
 
-from mcp_server.tools import market_data, indicators, risk, broker, portfolio, sentiment, history, journal
-from mcp_server.tools import learning, session, strategy_gen
+from mcp_server.tools import (
+    broker,
+    history,
+    indicators,
+    journal,
+    learning,
+    market_data,
+    overfitting,
+    portfolio,
+    quant,
+    risk,
+    sentiment,
+    session,
+    strategy_gen,
+    strategy_switch,
+)
 
 
 def create_server() -> FastMCP:
@@ -79,14 +93,27 @@ def create_server() -> FastMCP:
         """Calculate stop-loss and take-profit levels."""
         return risk.calculate_sl_tp(symbol, entry_price, signal, atr)
 
-    # ─── Broker Tools (GUARDRAIL-GATED execution) ────────────────────────
+    # ─── Broker Tools ─────────────────────────────────────────────────
 
     @mcp.tool()
     async def place_order(
-        symbol: str, order_type: str, lot: float, sl: float, tp: float, comment: str = ""
+        symbol: str,
+        order_type: str,
+        lot: float,
+        sl: float,
+        tp: float,
+        comment: str = "",
     ) -> dict:
-        """Place a trade order. GUARDRAIL-GATED: every order passes through
-        non-bypassable validation before execution."""
+        """Place a trade order. Passes through non-bypassable guardrails.
+
+        Args:
+            symbol: Trading symbol (e.g. "GOLDmicro", "USDJPY")
+            order_type: "BUY" or "SELL"
+            lot: Lot size (will be capped by rollout mode)
+            sl: Stop-loss price
+            tp: Take-profit price
+            comment: Optional order comment
+        """
         return await broker.place_order(symbol, order_type, lot, sl, tp, comment)
 
     @mcp.tool()
@@ -96,7 +123,7 @@ def create_server() -> FastMCP:
 
     @mcp.tool()
     async def close_position(ticket: int) -> dict:
-        """Close a specific position by ticket number."""
+        """Close an open position by ticket number."""
         return await broker.close_position(ticket)
 
     @mcp.tool()
@@ -227,12 +254,63 @@ def create_server() -> FastMCP:
         """Generate a custom ensemble strategy with specified strategy weights."""
         return strategy_gen.generate_ensemble_config(weights, name)
 
+    # ─── Quant Tools (quantitative analysis) ───────────────────────────
+
+    @mcp.tool()
+    async def get_var_analysis(symbol: str, timeframe: str = "M15", count: int = 200) -> dict:
+        """Calculate Value-at-Risk — estimate worst-case daily loss at 95% confidence."""
+        return await quant.get_var_analysis(symbol, timeframe, count)
+
+    @mcp.tool()
+    async def get_volatility_forecast(symbol: str, timeframe: str = "M15", count: int = 200) -> dict:
+        """Get GARCH volatility forecast vs realized — detect if volatility is expanding or contracting."""
+        return await quant.get_volatility_forecast(symbol, timeframe, count)
+
+    @mcp.tool()
+    async def get_quant_signals(symbol: str, timeframe: str = "M15", count: int = 200) -> dict:
+        """Get quantitative signals: momentum (ROC), mean-reversion (z-score), volatility breakout (ATR ratio)."""
+        return await quant.get_quant_signals(symbol, timeframe, count)
+
+    # ─── Overfitting Detection Tools ──────────────────────────────────
+
+    @mcp.tool()
+    async def compute_overfitting_score(
+        strategy: str,
+        symbol: str = "GOLD",
+        timeframe: str = "M15",
+        source: str = "db",
+        count: int = 5000,
+    ) -> dict:
+        """Compute composite overfitting score (0-100%) for a strategy.
+        Combines walk-forward ratio, permutation test, param stability, and monte carlo ruin probability."""
+        return await overfitting.compute_overfitting_score(strategy, symbol, timeframe, source, count)
+
+    # ─── Strategy Switch Tools ───────────────────────────────────────
+
+    @mcp.tool()
+    async def apply_strategy(
+        symbol: str,
+        strategy_name: str,
+        params: str | None = None,
+        reasoning: str = "",
+    ) -> dict:
+        """Apply a strategy to the trading engine based on market regime analysis.
+        Only works when enable_auto_strategy_switch is ON. Cooldown: 1h, max 3/day."""
+        return await strategy_switch.apply_strategy(symbol, strategy_name, params, reasoning)
+
+    @mcp.tool()
+    async def get_switch_status(symbol: str = "GOLD") -> dict:
+        """Get auto-strategy-switch status: enabled, current strategy, cooldown, daily count."""
+        return await strategy_switch.get_switch_status(symbol)
+
     return mcp
 
 
 if __name__ == "__main__":
     import os
+
     import redis.asyncio as redis_async
+
     from mcp_server.tools import init_mcp_tools
 
     redis_url = os.environ.get("REDIS_URL", "redis://localhost:6379")

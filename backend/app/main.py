@@ -35,7 +35,9 @@ from app.api.routes import (
     secrets,
     strategy,
 )
+from app.api.routes import quant
 from app.api.routes import metrics as metrics_routes
+from app.api.routes import webhooks
 from app.api.websocket import router as ws_router
 from app.api.ws_runners import router as ws_runners_router
 from app.auth import router as auth_router
@@ -59,6 +61,25 @@ async def lifespan(app: FastAPI):
     configure_logging()
 
     logger.info("Starting Trading Bot (multi-symbol)...")
+
+    # Auto-add missing columns (safe for production — ALTER TABLE IF NOT EXISTS equivalent)
+    try:
+        from sqlalchemy import text
+        async with async_session() as _tmp_session:
+            await _tmp_session.execute(text("SET lock_timeout = '5s'"))
+            for col_sql in [
+                "ALTER TABLE trades ADD COLUMN IF NOT EXISTS trade_reason VARCHAR(255)",
+                "ALTER TABLE trades ADD COLUMN IF NOT EXISTS pre_trade_snapshot JSON",
+                "ALTER TABLE trades ADD COLUMN IF NOT EXISTS post_trade_analysis JSON",
+            ]:
+                try:
+                    await _tmp_session.execute(text(col_sql))
+                except Exception:
+                    pass
+            await _tmp_session.commit()
+        logger.info("DB schema check complete")
+    except Exception as e:
+        logger.warning(f"DB schema auto-migration skipped: {e}")
 
     # Initialize shared components
     connector = MT5BridgeConnector()
@@ -103,6 +124,7 @@ async def lifespan(app: FastAPI):
 
     # Set up routes with manager reference
     bot.set_manager(manager)
+    webhooks.init_webhooks(manager)
     backtest.set_market_data(first_engine.market_data)
     backtest.set_collector(hist_collector)
     data.set_collector(hist_collector)
@@ -143,6 +165,17 @@ async def lifespan(app: FastAPI):
             logger.info("Prompt registry initialized")
         except Exception as e:
             logger.warning(f"Prompt registry init failed: {e}")
+
+    # Restore trading_mode from Redis (survives redeploy)
+    try:
+        cached_mode = await redis_client.get("trading_mode")
+        if cached_mode:
+            mode = cached_mode if isinstance(cached_mode, str) else cached_mode.decode()
+            if mode in ("strategy", "ai_autonomous"):
+                settings.trading_mode = mode
+                logger.info(f"Restored trading_mode from Redis: {mode}")
+    except Exception as e:
+        logger.debug(f"Redis trading_mode restore failed: {e}")
 
     # Start scheduler
     scheduler = BotScheduler(manager)
@@ -266,9 +299,11 @@ app.include_router(runners.router)
 app.include_router(jobs.router)
 app.include_router(rollout.router)
 app.include_router(integration.router)
+app.include_router(webhooks.router)
 app.include_router(activity.router)
 app.include_router(agent_prompts.router)
 app.include_router(memory_routes.router)
+app.include_router(quant.router)
 app.include_router(ws_router)
 app.include_router(ws_runners_router)
 

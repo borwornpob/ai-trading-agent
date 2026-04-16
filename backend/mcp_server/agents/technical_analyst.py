@@ -28,7 +28,8 @@ Provide a structured analysis with:
 - **Signal**: Your technical signal (BUY/SELL/NEUTRAL) with confidence (0.0-1.0)
 - **Reasoning**: 2-3 sentences explaining your analysis
 
-Be concise and precise. The Orchestrator needs actionable data, not lengthy explanations."""
+Be concise and precise. The Orchestrator needs actionable data, not lengthy explanations.
+ห้ามใช้ emoji ห้ามใช้ markdown table ใช้ bullet list แทน"""
 
 TOOL_NAMES = [
     "get_tick",

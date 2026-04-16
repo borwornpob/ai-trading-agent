@@ -53,6 +53,7 @@ export const updateSettings = (data: {
   max_lot?: number;
   fixed_lot?: number;
   lot_mode?: "fixed" | "auto";
+  enable_auto_strategy_switch?: boolean;
 }) => api.put("/api/bot/settings", data);
 export const getAccount = () => api.get("/api/bot/account");
 export const getBotEvents = (params?: { days?: number; event_type?: string; limit?: number }) =>
@@ -88,7 +89,7 @@ export const getSentimentHistory = (days?: number) =>
   api.get("/api/ai/sentiment/history", { params: { days } });
 export const getOptimizationReport = () =>
   api.get("/api/ai/optimization/latest");
-export const runOptimization = () => api.post("/api/ai/optimization/run");
+export const runOptimization = () => api.post("/api/ai/optimization/run", null, { timeout: 120000 });
 export const applyOptimization = (logId: number) =>
   api.post(`/api/ai/optimization/${logId}/apply`);
 
@@ -165,6 +166,34 @@ export const getModelStatus = (symbol?: string) =>
   api.get("/api/ml/status", { params: symbol ? { symbol } : {} });
 export const mlPredict = (symbol?: string) =>
   api.post("/api/ml/predict", null, { params: symbol ? { symbol } : {} });
+export const getDriftReport = (symbol?: string) =>
+  api.get("/api/ml/drift", { params: symbol ? { symbol } : {} });
+export const getCalibration = (symbol?: string) =>
+  api.get("/api/ml/calibration", { params: symbol ? { symbol } : {} });
+
+// Monte Carlo
+export const runMonteCarlo = (params: {
+  strategy: string; symbol?: string; timeframe?: string;
+  n_simulations?: number; initial_balance?: number;
+  source?: string; from_date?: string; to_date?: string;
+  count?: number; params?: Record<string, unknown>;
+}) => api.post("/api/backtest/monte-carlo", params, { timeout: 120000 });
+
+// Statistical Validation
+export const runCointegration = (params: {
+  symbol_a: string; symbol_b: string; timeframe?: string; count?: number; source?: string;
+}) => api.get("/api/backtest/cointegration", { params, timeout: 30000 });
+export const runPermutationTest = (params: {
+  strategy: string; params?: Record<string, unknown>;
+  symbol?: string; timeframe?: string; n_permutations?: number;
+  source?: string; from_date?: string; to_date?: string; count?: number;
+  include_costs?: boolean;
+}) => api.post("/api/backtest/permutation-test", params, { timeout: 300000 });
+
+export const runOverfittingScore = (params: {
+  strategy: string; symbol?: string; timeframe?: string;
+  source?: string; count?: number;
+}) => api.post("/api/backtest/overfitting-score", params, { timeout: 300000 });
 
 // Macro Data
 export const getMacroLatest = () => api.get("/api/macro/latest");
@@ -188,6 +217,19 @@ export const getSymbols = () => api.get("/api/market-data/symbols");
 export const getRolloutMode = () => api.get("/api/rollout/mode");
 export const setRolloutMode = (mode: string) => api.put("/api/rollout/mode", { mode });
 export const getRolloutReadiness = () => api.get("/api/rollout/readiness");
+
+// Quant
+export const getQuantVaR = () => api.get("/api/quant/var");
+export const getQuantRegime = () => api.get("/api/quant/regime");
+export const getQuantCorrelation = () => api.get("/api/quant/correlation");
+export const getQuantVolatility = () => api.get("/api/quant/volatility");
+export const getQuantPortfolio = () => api.get("/api/quant/portfolio");
+export const getQuantSignals = () => api.get("/api/quant/signals");
+export const runStressTest = (scenario: string = "all") =>
+  api.post("/api/quant/stress-test", null, { params: { scenario }, timeout: 60000 });
+
+// Bot management
+export const resetPeakBalance = () => api.post("/api/bot/reset-peak");
 
 // Health
 export const getHealth = () => api.get("/health");

@@ -9,12 +9,15 @@ import { Skeleton } from "@/components/ui/skeleton";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
-import { Download, BarChart3, TrendingUp, DollarSign, Target } from "lucide-react";
+import { Download, BarChart3, TrendingUp, DollarSign, Target, History } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { PageInstructions } from "@/components/layout/PageInstructions";
 import { StatCard } from "@/components/ui/stat-card";
 import SentimentBadge from "@/components/ai/SentimentBadge";
 import { getTradeHistory, getPerformance, getSymbols } from "@/lib/api";
+import { showSuccess, showError } from "@/lib/toast";
+import { EmptyState } from "@/components/ui/empty-state";
+import { ErrorBoundary } from "@/components/ui/error-boundary";
 import { SymbolTabs } from "@/components/ui/symbol-tabs";
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ReferenceLine, ResponsiveContainer,
@@ -25,6 +28,9 @@ type Trade = {
   open_price: number; close_price: number | null; sl: number; tp: number;
   open_time: string; close_time: string | null; profit: number | null;
   strategy_name: string; ai_sentiment_label: string | null; ai_sentiment_score: number | null;
+  trade_reason: string | null;
+  pre_trade_snapshot: Record<string, unknown> | null;
+  post_trade_analysis: { exit_reason: string; duration_hours: number | null; outcome: string; profit_usd: number; entry_regime: string; exit_regime: string | null; summary_th: string } | null;
 };
 
 export default function HistoryPage() {
@@ -52,7 +58,7 @@ export default function HistoryPage() {
       ]);
       setTrades(tradeRes.data.trades || []);
       setPerformance(perfRes.data);
-    } catch (e) { console.error(e); } finally { setLoading(false); }
+    } catch (e) { console.error(e); showError("Failed to load trade history"); } finally { setLoading(false); }
   }, [days, symbolFilter]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
@@ -69,10 +75,11 @@ export default function HistoryPage() {
     a.href = URL.createObjectURL(blob);
     a.download = `trades_${days}d.csv`;
     a.click();
+    showSuccess("CSV exported", `${trades.length} trades exported`);
   };
 
   return (
-    <div className="p-4 sm:p-6 xl:p-8 space-y-5 sm:space-y-6">
+    <div className="p-4 sm:p-6 xl:p-8 space-y-5 sm:space-y-6 page-enter">
       <PageHeader title="Trade History" subtitle="Review past trades and performance">
         <SymbolTabs
           symbols={symbols}
@@ -128,75 +135,85 @@ export default function HistoryPage() {
                   ))}
                 </div>
               ) : trades.length > 0 ? (
-                <ScrollArea className="h-[400px] sm:h-[500px]">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Time</TableHead>
-                        <TableHead>Symbol</TableHead>
-                        <TableHead>Type</TableHead>
-                        <TableHead className="text-right">Lot</TableHead>
-                        <TableHead className="text-right">Open</TableHead>
-                        <TableHead className="text-right">Close</TableHead>
-                        <TableHead className="text-right">P&L</TableHead>
-                        <TableHead>Strategy</TableHead>
-                        <TableHead className="text-center">AI</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {(() => {
-                        const total = trades.reduce((s, t) => s + (t.profit ?? 0), 0);
-                        const wins = trades.filter((t) => (t.profit ?? 0) > 0).length;
-                        return trades.length > 0 ? (
-                          <TableRow className="border-t-2 border-border bg-muted/30 font-semibold">
-                            <TableCell colSpan={5} className="text-xs font-bold text-muted-foreground">
-                              Total ({trades.length} trades · {wins}W / {trades.length - wins}L)
-                            </TableCell>
-                            <TableCell
-                              className={`text-right font-mono font-bold ${total >= 0 ? "text-success dark:text-green-400" : "text-destructive"}`}
-                            >
-                              {total >= 0 ? "+" : ""}{total.toFixed(2)}
-                            </TableCell>
-                            <TableCell colSpan={2} />
-                          </TableRow>
-                        ) : null;
-                      })()}
-                      {trades.map((t) => (
-                        <TableRow key={t.id} className="hover:bg-muted/30 transition-colors">
-                          <TableCell className="text-muted-foreground text-xs font-medium">
-                            {new Date(t.open_time).toLocaleDateString("en-GB", { timeZone: "Asia/Bangkok" })}
-                          </TableCell>
-                          <TableCell className="font-medium text-xs">{t.symbol}</TableCell>
-                          <TableCell
-                            className={`font-semibold ${t.type === "BUY" ? "text-success dark:text-green-400" : "text-destructive"}`}
-                          >
-                            {t.type}
-                          </TableCell>
-                          <TableCell className="text-right font-mono">{t.lot}</TableCell>
-                          <TableCell className="text-right font-mono">{t.open_price.toFixed(2)}</TableCell>
-                          <TableCell className="text-right font-mono">
-                            {t.close_price?.toFixed(2) ?? "—"}
-                          </TableCell>
-                          <TableCell
-                            className={`text-right font-mono font-semibold ${(t.profit ?? 0) >= 0 ? "text-success dark:text-green-400" : "text-destructive"}`}
-                          >
-                            {t.profit !== null ? `${t.profit >= 0 ? "+" : ""}${t.profit.toFixed(2)}` : "—"}
-                          </TableCell>
-                          <TableCell className="text-muted-foreground font-medium">{t.strategy_name}</TableCell>
-                          <TableCell className="text-center">
-                            {t.ai_sentiment_label ? (
-                              <SentimentBadge label={t.ai_sentiment_label} score={t.ai_sentiment_score || 0} size="sm" />
-                            ) : (
-                              <span className="text-muted-foreground">—</span>
-                            )}
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </ScrollArea>
+                <>
+                  {/* Detect which optional columns have data */}
+                  {(() => {
+                    const hasReason = trades.some((t) => t.trade_reason);
+                    const hasSentiment = trades.some((t) => t.ai_sentiment_label);
+                    const total = trades.reduce((s, t) => s + (t.profit ?? 0), 0);
+                    const wins = trades.filter((t) => (t.profit ?? 0) > 0).length;
+                    const losses = trades.length - wins;
+
+                    return (
+                      <>
+                        <ScrollArea className="h-[400px] sm:h-[500px]">
+                          <div className="overflow-x-auto">
+                          <Table>
+                            <TableHeader>
+                              <TableRow>
+                                <TableHead className="text-xs">Time</TableHead>
+                                <TableHead className="text-xs">Symbol</TableHead>
+                                <TableHead className="text-xs">Type</TableHead>
+                                <TableHead className="text-xs text-right">Lot</TableHead>
+                                <TableHead className="text-xs text-right">Open</TableHead>
+                                <TableHead className="text-xs text-right">Close</TableHead>
+                                <TableHead className="text-xs text-right">P&L</TableHead>
+                                <TableHead className="text-xs">Strategy</TableHead>
+                                {hasReason && <TableHead className="text-xs">Reason</TableHead>}
+                                {hasSentiment && <TableHead className="text-xs text-center">AI</TableHead>}
+                              </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                              {trades.map((t) => (
+                                <TableRow key={t.id} className="hover:bg-muted/30 transition-colors">
+                                  <TableCell className="text-muted-foreground text-xs">
+                                    {new Date(t.open_time).toLocaleDateString("en-GB", { timeZone: "Asia/Bangkok" })}
+                                  </TableCell>
+                                  <TableCell className="text-xs font-medium">{t.symbol}</TableCell>
+                                  <TableCell className={`text-xs font-semibold ${t.type === "BUY" ? "text-success dark:text-green-400" : "text-destructive"}`}>
+                                    {t.type}
+                                  </TableCell>
+                                  <TableCell className="text-right text-xs font-mono">{t.lot}</TableCell>
+                                  <TableCell className="text-right text-xs font-mono">{t.open_price.toFixed(2)}</TableCell>
+                                  <TableCell className="text-right text-xs font-mono">{t.close_price?.toFixed(2) ?? "—"}</TableCell>
+                                  <TableCell className={`text-right text-xs font-mono font-semibold ${(t.profit ?? 0) >= 0 ? "text-success dark:text-green-400" : "text-destructive"}`}>
+                                    {t.profit !== null ? `${t.profit >= 0 ? "+" : ""}${t.profit.toFixed(2)}` : "—"}
+                                  </TableCell>
+                                  <TableCell className="text-xs text-muted-foreground">{t.strategy_name}</TableCell>
+                                  {hasReason && (
+                                    <TableCell className="text-xs text-muted-foreground max-w-[180px] truncate" title={t.trade_reason || undefined}>
+                                      {t.trade_reason || "—"}
+                                    </TableCell>
+                                  )}
+                                  {hasSentiment && (
+                                    <TableCell className="text-center">
+                                      {t.ai_sentiment_label ? (
+                                        <SentimentBadge label={t.ai_sentiment_label} score={t.ai_sentiment_score || 0} size="sm" />
+                                      ) : null}
+                                    </TableCell>
+                                  )}
+                                </TableRow>
+                              ))}
+                            </TableBody>
+                          </Table>
+                          </div>
+                        </ScrollArea>
+
+                        {/* Summary bar at bottom */}
+                        <div className="flex items-center justify-between px-4 py-3 border-t border-border bg-muted/20 rounded-b-xl">
+                          <span className="text-xs text-muted-foreground font-medium">
+                            {trades.length} trades · {wins}W / {losses}L · Win rate {trades.length > 0 ? ((wins / trades.length) * 100).toFixed(0) : 0}%
+                          </span>
+                          <span className={`text-sm font-bold font-mono ${total >= 0 ? "text-success dark:text-green-400" : "text-destructive"}`}>
+                            {total >= 0 ? "+" : ""}${Math.abs(total).toFixed(2)}
+                          </span>
+                        </div>
+                      </>
+                    );
+                  })()}
+                </>
               ) : (
-                <p className="text-muted-foreground text-center py-12 font-medium">No trades found</p>
+                <EmptyState icon={History} heading="No trades found" description="Start trading to see your history here" action={{ label: "Go to Dashboard", href: "/dashboard" }} />
               )}
             </CardContent>
           </Card>
@@ -222,6 +239,7 @@ export default function HistoryPage() {
                 <CardTitle className="text-sm font-bold">Cumulative P&L</CardTitle>
               </CardHeader>
               <CardContent>
+                <ErrorBoundary>
                 <ResponsiveContainer width="100%" height={300}>
                   <AreaChart
                     data={trades
@@ -255,6 +273,7 @@ export default function HistoryPage() {
                     <Area type="monotone" dataKey="pnl" stroke="#9fe870" strokeWidth={2} fill="url(#pnlGradient)" />
                   </AreaChart>
                 </ResponsiveContainer>
+                </ErrorBoundary>
               </CardContent>
             </Card>
           )}

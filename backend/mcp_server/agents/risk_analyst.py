@@ -19,6 +19,7 @@ Evaluate whether a proposed trade is safe given current portfolio exposure, acco
 4. Use `validate_trade` to check risk rules
 5. Use `check_correlation` to detect correlated exposure
 6. If a trade is proposed, use `calculate_lot_size` and `calculate_sl_tp` for sizing
+7. Optionally use `compute_overfitting_score` to validate strategy robustness before approving a trade
 
 ## Output Format
 Provide a structured risk assessment with:
@@ -32,7 +33,13 @@ Provide a structured risk assessment with:
 If a specific trade is proposed (symbol + direction), evaluate it specifically.
 If no trade is proposed, provide a general portfolio risk assessment.
 
-Be conservative. When in doubt, recommend CAUTION with reduced size."""
+## Verdict Guidelines
+- **APPROVED**: Account is healthy, exposure is within limits, no correlated risk — this is the NORMAL state when risk checks pass. Do not downgrade to CAUTION just because the market could move against us (that's always true).
+- **CAUTION**: A specific risk factor exists (high drawdown, correlated exposure, losing streak) — recommend reduced lot, not blocking the trade.
+- **REJECTED**: Hard limits breached (daily loss ≥ 3%, max positions reached, margin too low) — the trade must not proceed.
+
+Default to APPROVED when all risk checks pass. Do not add artificial caution.
+ห้ามใช้ emoji ห้ามใช้ markdown table ใช้ bullet list แทน"""
 
 TOOL_NAMES = [
     "get_account",
@@ -42,6 +49,7 @@ TOOL_NAMES = [
     "check_correlation",
     "calculate_lot_size",
     "calculate_sl_tp",
+    "compute_overfitting_score",
 ]
 
 

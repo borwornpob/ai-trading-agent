@@ -1,12 +1,13 @@
 import type { Metadata } from "next";
-import { Inter } from "next/font/google";
+import { Noto_Sans_Thai } from "next/font/google";
 import "./globals.css";
 import { ThemeProvider } from "@/components/theme-provider";
 import { AppShell } from "@/components/layout/AppShell";
+import { Toaster } from "@/components/ui/toaster";
 
-const inter = Inter({
+const notoSansThai = Noto_Sans_Thai({
   variable: "--font-sans",
-  subsets: ["latin"],
+  subsets: ["latin", "thai"],
   weight: ["400", "500", "600", "700", "900"],
   display: "swap",
 });
@@ -23,7 +24,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className={`${inter.variable} h-full antialiased`} suppressHydrationWarning>
+    <html lang="th" className={`${notoSansThai.variable} h-full antialiased`} suppressHydrationWarning>
       <body className="min-h-full bg-background text-foreground">
         <ThemeProvider
           attribute="class"
@@ -32,6 +33,7 @@ export default function RootLayout({
           disableTransitionOnChange
         >
           <AppShell>{children}</AppShell>
+          <Toaster />
         </ThemeProvider>
       </body>
     </html>

@@ -4,12 +4,41 @@ Scheduler — APScheduler jobs for bot operations (multi-symbol).
 
 import asyncio
 from collections import defaultdict
-from datetime import datetime
+from datetime import UTC, datetime
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from loguru import logger
 
-from app.bot.engine import BotEngine
+from app.bot.engine import BotEngine, BotState
+from app.config import settings
+
+# Market close windows (UTC). None = 24/7 (e.g. crypto).
+# daily_close: (start_hour, end_hour) when MT5 daily maintenance occurs.
+MARKET_SCHEDULE = {
+    "GOLD":    {"weekend": True, "daily_close": (22, 23)},
+    "OILCash": {"weekend": True, "daily_close": (22, 23)},
+    "BTCUSD":  {"weekend": False, "daily_close": None},
+    "USDJPY":  {"weekend": True, "daily_close": (22, 22)},
+}
+
+
+def is_market_open(symbol: str) -> bool:
+    """Check if the market for *symbol* is likely open on MT5."""
+    from app.config import get_canonical_symbol
+    now = datetime.utcnow()
+    canonical = get_canonical_symbol(symbol)
+    schedule = MARKET_SCHEDULE.get(canonical, MARKET_SCHEDULE.get(symbol, {"weekend": True, "daily_close": None}))
+
+    # Weekend check (Saturday 00:00 – Sunday 23:59 UTC, approximate)
+    if schedule["weekend"] and now.weekday() >= 5:
+        return False
+
+    # Daily close window
+    dc = schedule.get("daily_close")
+    if dc and dc[0] <= now.hour < dc[1]:
+        return False
+
+    return True
 
 # Timeframe → cron schedule mapping
 TIMEFRAME_CRON = {
@@ -179,8 +208,31 @@ class BotScheduler:
             coalesce=True,
         )
 
+        # Daily trading summary: 22:00 UTC (forex market close)
+        self.scheduler.add_job(
+            self._daily_summary_job,
+            "cron",
+            hour=22,
+            minute=0,
+            id="daily_summary",
+            max_instances=1,
+        )
+
+        # Economic calendar refresh every hour
+        self.scheduler.add_job(
+            self._refresh_economic_calendar,
+            "interval",
+            hours=1,
+            id="economic_calendar_refresh",
+            max_instances=1,
+            coalesce=True,
+        )
+
         self.scheduler.start()
         logger.info("Scheduler started")
+
+        # Initial calendar refresh
+        asyncio.create_task(self._refresh_economic_calendar())
 
     def _schedule_candle_jobs(self):
         """Create one cron job per unique timeframe across all engines."""
@@ -241,31 +293,79 @@ class BotScheduler:
 
     async def _candle_job(self, symbols: list[str]):
         logger.debug(f"Candle job triggered for {symbols}")
-        # AI Agent is the primary decision-maker (no rule-based strategies)
-        await self._run_ai_agent(symbols)
 
-    async def _sentiment_job(self):
-        """Fetch news sentiment regardless of bot state — news comes out 24/7.
+        # Read trading_mode from Redis (survives redeploy), fallback to settings/env
+        trading_mode = getattr(settings, "trading_mode", "strategy")
+        try:
+            first_engine = next(iter(self._engines.values()), None)
+            if first_engine and first_engine.redis:
+                cached_mode = await first_engine.redis.get("trading_mode")
+                if cached_mode:
+                    cached = cached_mode if isinstance(cached_mode, str) else cached_mode.decode()
+                    if cached in ("strategy", "ai_autonomous"):
+                        trading_mode = cached
+                        settings.trading_mode = cached
+                    else:
+                        logger.warning(f"Invalid trading_mode in Redis: '{cached}', ignoring")
+        except Exception as e:
+            logger.debug(f"Redis trading_mode read failed: {e}")
 
-        Runs every 15 min on weekdays, but skips 3 out of 4 runs on weekends
-        (effectively hourly) to save API cost.
-        """
-        now = datetime.utcnow()
-        is_weekend = now.weekday() >= 5  # Saturday=5, Sunday=6
-        if is_weekend and now.minute not in (2,):
-            # On weekends, only run at :02 past each hour (skip :17, :32, :47)
-            logger.debug("Sentiment job skipped (weekend, hourly mode)")
+        # Filter to symbols with open markets
+        active_symbols = [sym for sym in symbols if is_market_open(sym)]
+        skipped = [sym for sym in symbols if sym not in active_symbols]
+        if skipped:
+            logger.debug(f"Candle job: skipped {skipped} (market closed)")
+        if not active_symbols:
             return
 
-        logger.debug("Sentiment job triggered")
-        tasks = [e.fetch_and_analyze_sentiment() for e in self._engines.values()]
+        if trading_mode == "strategy":
+            for sym in active_symbols:
+                engine = self._engines.get(sym)
+                if engine and engine.state.value == "RUNNING":
+                    try:
+                        await engine.process_candle()
+                    except Exception as e:
+                        logger.error(f"process_candle error [{sym}]: {e}")
+            asyncio.create_task(self._run_ai_agent(active_symbols))
+        else:
+            for sym in active_symbols:
+                engine = self._engines.get(sym)
+                if engine and engine.state.value == "RUNNING":
+                    try:
+                        await engine._detect_regime()
+                    except Exception as e:
+                        logger.debug(f"Regime detection [{sym}]: {e}")
+            await self._run_ai_agent(active_symbols)
+
+    async def _sentiment_job(self):
+        """Fetch news sentiment only for symbols whose market is open and bot is running.
+
+        Skips when market is closed (weekends for forex/metals, daily maintenance window)
+        to reduce unnecessary API calls (~50% reduction).
+        """
+        tasks = []
+        for sym, engine in self._engines.items():
+            if engine.state != BotState.RUNNING:
+                continue
+            if not is_market_open(sym):
+                logger.debug(f"Sentiment skipped [{sym}]: market closed")
+                continue
+            tasks.append(engine.fetch_and_analyze_sentiment())
+
         if tasks:
-            await asyncio.gather(*tasks, return_exceptions=True)
+            logger.info(f"Sentiment job triggered for {len(tasks)} symbol(s)")
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            for i, r in enumerate(results):
+                if isinstance(r, Exception):
+                    sym = list(self._engines.keys())[i] if i < len(self._engines) else "?"
+                    logger.error(f"Sentiment fetch failed [{sym}]: {r}")
+        else:
+            logger.info("Sentiment job skipped: no active symbols with open market")
 
     async def _run_ai_agent(self, symbols: list[str]):
         """Run AI agent for each symbol — the primary trading decision-maker."""
         try:
-            from mcp_server.agent_config import run_agent
+            from mcp_server.agent_config import run_agent, run_multi_agent
         except ImportError:
             logger.error("CRITICAL: AI agent not available — trading disabled for this cycle!")
             # Notify via Telegram so operator knows trading is offline
@@ -278,15 +378,27 @@ class BotScheduler:
                         break  # one notification is enough
             return
 
-        for sym in symbols:
+        async def _run_for_symbol(sym: str):
             engine = self._engines.get(sym)
             if not engine or engine.state.value != "RUNNING":
-                continue
+                return
+            if not is_market_open(sym):
+                logger.debug(f"AI agent skipped [{sym}]: market closed")
+                return
             try:
-                result = await run_agent(
-                    job_type="candle_analysis",
-                    job_input={"symbol": sym, "timeframe": engine.timeframe},
-                )
+                # Use multi-agent pipeline when agent_mode=multi (Reflector + Specialists + Orchestrator)
+                # Single agent mode is analysis-only — it cannot place trades
+                use_multi = getattr(settings, "agent_mode", "single") == "multi"
+                if use_multi:
+                    result = await run_multi_agent(
+                        job_type="candle_analysis",
+                        job_input={"symbol": sym, "timeframe": engine.timeframe},
+                    )
+                else:
+                    result = await run_agent(
+                        job_type="candle_analysis",
+                        job_input={"symbol": sym, "timeframe": engine.timeframe},
+                    )
                 decision = result.get("decision", "HOLD")
                 tool_calls = result.get("tool_calls", [])
                 duration = result.get("duration_s", 0)
@@ -299,7 +411,18 @@ class BotScheduler:
                     "turns": result.get("turns", 0),
                     "tool_calls": len(tool_calls),
                     "duration_s": duration,
+                    "timestamp": datetime.utcnow().isoformat(),
                 }
+
+                # Hallucination check — validate AI claims against real data
+                try:
+                    from app.ai.hallucination_check import check_hallucination
+                    hc = await check_hallucination(decision, sym, engine.market_data)
+                    engine._last_ai_decision["hallucination_check"] = hc
+                    if hc.get("high_severity_count", 0) > 0:
+                        logger.warning(f"AI hallucination [{sym}]: {hc['high_severity_count']} high-severity flags: {hc['flags']}")
+                except Exception as e:
+                    logger.debug(f"Hallucination check failed [{sym}]: {e}")
 
                 # Log AI analysis to DB for activity page
                 from app.db.models import BotEventType
@@ -319,6 +442,8 @@ class BotScheduler:
             except Exception as e:
                 logger.warning(f"AI agent [{sym}] error: {e}")
 
+        await asyncio.gather(*[_run_for_symbol(sym) for sym in symbols], return_exceptions=True)
+
     async def _sync_job(self):
         tasks = [e.sync_positions() for e in self._engines.values() if e.state.value == "RUNNING"]
         if tasks:
@@ -328,7 +453,7 @@ class BotScheduler:
         logger.info("Weekly optimization triggered")
         # Run optimization on first engine that has an optimizer
         for engine in self._engines.values():
-            if not engine._optimizer:
+            if not engine._optimizer or engine.strategy is None:
                 continue
             try:
                 result = await engine._optimizer.optimize(engine.strategy.get_params())
@@ -337,6 +462,30 @@ class BotScheduler:
                     await engine._notify(engine.notifier.send_optimization_report(
                         result.assessment, result.confidence,
                     ))
+                    # Auto-apply if feature flag ON and backtest confirms improvement.
+                    # Read from Redis (not in-memory settings) so the flag survives restarts.
+                    if result.backtest_validation and result.backtest_validation.get("suggested_better"):
+                        flag_raw = await engine.redis.get("enable_auto_strategy_switch")
+                        flag_on = (flag_raw == b"1" or flag_raw == "1") if flag_raw else False
+                        if flag_on:
+                            from mcp_server.strategy_switch_guard import StrategySwitchGuard
+                            guard = StrategySwitchGuard(engine.redis)
+                            strategy_name = engine.strategy.name if engine.strategy else "ema_crossover"
+                            validation = await guard.validate_switch(engine.symbol, strategy_name)
+                            if validation.allowed:
+                                await engine.update_strategy(strategy_name, result.suggested_params)
+                                await guard.record_switch(
+                                    engine.symbol, strategy_name,
+                                    f"Weekly optimizer: confidence={result.confidence}",
+                                )
+                                logger.info(
+                                    f"[Optimizer Auto-Apply] [{engine.symbol}] "
+                                    f"params={result.suggested_params} confidence={result.confidence}"
+                                )
+                            else:
+                                logger.info(
+                                    f"[Optimizer Auto-Apply] [{engine.symbol}] blocked: {validation.reason}"
+                                )
             except Exception as e:
                 logger.error(f"Weekly optimization error [{engine.symbol}]: {e}")
 
@@ -352,10 +501,69 @@ class BotScheduler:
                     logger.error(f"Macro collection error: {e}")
                 break
 
+    async def _refresh_economic_calendar(self):
+        """Refresh economic calendar from API for all engines."""
+        for engine in self._engines.values():
+            try:
+                count = await engine._event_calendar.refresh()
+                logger.debug(f"Economic calendar refreshed: {count} events")
+                break  # Only need to refresh once (shared cache)
+            except Exception as e:
+                logger.warning(f"Economic calendar refresh failed: {e}")
+
     async def _daily_reset_job(self):
         logger.info("Daily reset triggered")
         tasks = [e.circuit_breaker.reset() for e in self._engines.values()]
         await asyncio.gather(*tasks, return_exceptions=True)
+
+    async def _daily_summary_job(self):
+        """Daily trading summary at market close — sends Telegram report."""
+        logger.info("Daily summary triggered")
+        try:
+            from datetime import datetime
+
+            from sqlalchemy import and_, select
+
+            from app.db.models import Trade
+
+            symbol_stats = []
+            total_pnl = 0.0
+            total_trades = 0
+            total_wins = 0
+
+            for symbol, engine in self._engines.items():
+                # Get today's closed trades
+                today_start = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0, tzinfo=None)
+                stmt = select(Trade).where(and_(
+                    Trade.symbol == symbol,
+                    Trade.close_time >= today_start,
+                    Trade.profit.isnot(None),
+                ))
+                result = await engine.db.execute(stmt)
+                trades = result.scalars().all()
+
+                pnl = sum(t.profit for t in trades)
+                wins = sum(1 for t in trades if t.profit > 0)
+                total_pnl += pnl
+                total_trades += len(trades)
+                total_wins += wins
+
+                symbol_stats.append({
+                    "symbol": symbol,
+                    "pnl": round(pnl, 2),
+                    "trades": len(trades),
+                    "regime": engine.risk_manager.current_regime,
+                })
+
+            total_win_rate = total_wins / total_trades if total_trades > 0 else 0
+
+            # Send via first engine's notifier
+            notifier = next((e.notifier for e in self._engines.values() if e.notifier), None)
+            if notifier:
+                await notifier.send_daily_summary(symbol_stats, round(total_pnl, 2), total_trades, total_win_rate)
+                logger.info(f"Daily summary sent: PnL=${total_pnl:.2f}, trades={total_trades}")
+        except Exception as e:
+            logger.error(f"Daily summary failed: {e}")
 
     async def _ml_retrain_job(self):
         """Weekly ML retrain — trains per-symbol on last 6 months of data."""
@@ -415,7 +623,6 @@ class BotScheduler:
             import joblib
             from sqlalchemy import select, update
 
-            from app.config import settings
             from app.data.collector import DataCollector
             from app.db.models import MLModelLog
             from app.db.session import async_session

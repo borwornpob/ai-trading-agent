@@ -22,9 +22,12 @@ import {
   Plug,
   LogOut,
   Activity,
+  Shield,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
+import { ConnectionStatus } from "@/components/ui/connection-status";
+
 
 interface NavItem { href: string; label: string; icon: typeof LayoutDashboard; }
 interface NavGroup { label: string; items: NavItem[]; }
@@ -50,6 +53,7 @@ const navGroups: NavGroup[] = [
       { href: "/activity", label: "AI Activity", icon: Activity },
       { href: "/ml", label: "ML Model", icon: Cpu },
       { href: "/macro", label: "Macro Data", icon: Globe },
+      { href: "/quant", label: "Quant", icon: Shield },
     ],
   },
   {
@@ -156,7 +160,10 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
 
       {/* Footer */}
       <div className="p-4 space-y-1">
-        <ThemeToggle />
+        <ConnectionStatus />
+        <div className="flex items-center gap-1 px-1">
+          <ThemeToggle />
+        </div>
         <LogoutButton />
         <p className="px-3 pt-1 text-xs text-muted-foreground/50 font-medium">v2.0.0</p>
       </div>

@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Sparkles, Brain, BarChart3 } from "lucide-react";
+import { Sparkles, Brain, BarChart3, Loader2 } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { PageInstructions } from "@/components/layout/PageInstructions";
 import { GoldGauge } from "@/components/ui/gold-gauge";
@@ -16,6 +16,9 @@ import {
   getLatestSentiment, getSentimentHistory, getOptimizationReport,
   runOptimization, applyOptimization, getBotStatus,
 } from "@/lib/api";
+import { showSuccess, showError } from "@/lib/toast";
+import { EmptyState } from "@/components/ui/empty-state";
+import { ErrorBoundary } from "@/components/ui/error-boundary";
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine,
 } from "recharts";
@@ -23,6 +26,13 @@ import {
 export default function InsightsPage() {
   const { symbols } = useBotStore();
   const [activeSymbol, setActiveSymbol] = useState("GOLD");
+
+  useEffect(() => {
+    if (symbols.length > 0 && !symbols.some(s => s.symbol === activeSymbol)) {
+      setActiveSymbol(symbols[0].symbol);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [symbols]);
   const [sentiment, setSentiment] = useState<{
     label: string; score: number; confidence: number; key_factors: string[]; analyzed_at: string; symbol?: string;
   } | null>(null);
@@ -30,6 +40,8 @@ export default function InsightsPage() {
   const [optimization, setOptimization] = useState<Record<string, unknown> | null>(null);
   const [botRunning, setBotRunning] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [optimizing, setOptimizing] = useState(false);
+  const [optimizeError, setOptimizeError] = useState<string | null>(null);
 
   const fetchData = useCallback(async () => {
     try {
@@ -46,12 +58,24 @@ export default function InsightsPage() {
   useEffect(() => { fetchData(); }, [fetchData]);
 
   const handleRunOptimization = async () => {
-    try { const res = await runOptimization(); setOptimization(res.data); } catch (e) { console.error(e); }
+    setOptimizing(true);
+    setOptimizeError(null);
+    try {
+      const res = await runOptimization();
+      setOptimization(res.data);
+      showSuccess("Optimization complete");
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Optimization failed";
+      const detail = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+      setOptimizeError(detail || msg);
+      showError("Optimization failed", detail || msg);
+    } finally {
+      setOptimizing(false);
+    }
   };
   const handleApply = async (logId: number) => {
     if (confirm("Apply suggested parameters?")) {
-      await applyOptimization(logId);
-      fetchData();
+      try { await applyOptimization(logId); await fetchData(); showSuccess("Optimization applied"); } catch { showError("Failed to apply optimization"); }
     }
   };
 
@@ -73,7 +97,7 @@ export default function InsightsPage() {
   }
 
   return (
-    <div className="p-4 sm:p-6 xl:p-8 space-y-5 sm:space-y-6">
+    <div className="p-4 sm:p-6 xl:p-8 space-y-5 sm:space-y-6 page-enter">
       <PageHeader title="AI Insights" subtitle="Sentiment analysis and strategy optimization" />
 
       <PageInstructions
@@ -123,9 +147,7 @@ export default function InsightsPage() {
                 </p>
               </>
             ) : (
-              <p className="text-sm text-muted-foreground text-center py-12 font-medium">
-                No sentiment data available
-              </p>
+              <EmptyState icon={Brain} heading="No sentiment data" description="AI sentiment analysis will appear after the bot runs its first analysis cycle" />
             )}
           </CardContent>
         </Card>
@@ -137,6 +159,7 @@ export default function InsightsPage() {
           </CardHeader>
           <CardContent>
             {chartData.length > 0 ? (
+              <ErrorBoundary>
               <ResponsiveContainer width="100%" height={320}>
                 <AreaChart data={chartData}>
                   <defs>
@@ -162,10 +185,9 @@ export default function InsightsPage() {
                   <Area type="monotone" dataKey="score" stroke="#9fe870" strokeWidth={2} fill="url(#sentimentGradient)" dot={{ fill: "#9fe870", r: 2 }} />
                 </AreaChart>
               </ResponsiveContainer>
+              </ErrorBoundary>
             ) : (
-              <p className="text-sm text-muted-foreground text-center py-20 font-medium">
-                No history data
-              </p>
+              <EmptyState icon={BarChart3} heading="No history data" description="Sentiment history will build up over time as the bot analyzes market conditions" />
             )}
           </CardContent>
         </Card>
@@ -176,12 +198,12 @@ export default function InsightsPage() {
         <div>
           {optimization && optimization.suggested_params ? (
             <OptimizationReport
-              assessment={(optimization.rationale as string) || ""}
+              assessment={(optimization.assessment as string) || (optimization.rationale as string) || ""}
               currentParams={(optimization.current_params as Record<string, number>) || {}}
               suggestedParams={(optimization.suggested_params as Record<string, number>) || {}}
               confidence={(optimization.confidence as number) || 0}
-              reasoning={(optimization.rationale as string) || ""}
-              logId={(optimization.id as number) || null}
+              reasoning={(optimization.reasoning as string) || (optimization.rationale as string) || ""}
+              logId={(optimization.log_id as number) || (optimization.id as number) || null}
               applied={(optimization.applied as boolean) || false}
               botRunning={botRunning}
               onApply={handleApply}
@@ -190,14 +212,24 @@ export default function InsightsPage() {
             <Card>
               <CardContent className="py-12 text-center space-y-4">
                 <Sparkles className="size-10 text-muted-foreground/40 mx-auto" />
-                <p className="text-sm text-muted-foreground font-medium">No optimization runs yet</p>
+                <p className="text-sm text-muted-foreground font-medium">
+                  {optimizing ? "AI is analyzing your recent trades..." : "No optimization runs yet"}
+                </p>
                 <Button
                   onClick={handleRunOptimization}
+                  disabled={optimizing}
                   className="rounded-full bg-primary text-primary-foreground font-semibold hover-scale"
                 >
-                  <Sparkles className="size-4 mr-1.5" />
-                  Run Optimization
+                  {optimizing ? (
+                    <Loader2 className="size-4 mr-1.5 animate-spin" />
+                  ) : (
+                    <Sparkles className="size-4 mr-1.5" />
+                  )}
+                  {optimizing ? "Optimizing..." : "Run Optimization"}
                 </Button>
+                {optimizeError && (
+                  <p className="text-xs text-red-400 font-medium">{optimizeError}</p>
+                )}
               </CardContent>
             </Card>
           )}

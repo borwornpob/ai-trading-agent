@@ -1,6 +1,4 @@
 from pydantic_settings import BaseSettings
-from pydantic import Field
-
 
 # Per-symbol trading profiles
 SYMBOL_PROFILES: dict[str, dict] = {
@@ -66,6 +64,57 @@ SYMBOL_PROFILES: dict[str, dict] = {
     },
 }
 
+# ─── Symbol Aliases (broker-specific names → canonical profile) ────────────
+# XM micro accounts use suffixed symbol names (e.g., GOLDmicro, OILCashmicro)
+SYMBOL_ALIASES: dict[str, str] = {
+    "GOLDmicro": "GOLD",
+    "OILCashmicro": "OILCash",
+    "BTCUSDmicro": "BTCUSD",
+    "USDJPYmicro": "USDJPY",
+}
+
+
+def get_symbol_profile(symbol: str) -> dict:
+    """Get profile for a symbol, resolving aliases (e.g., GOLDmicro → GOLD)."""
+    canonical = SYMBOL_ALIASES.get(symbol, symbol)
+    profile = SYMBOL_PROFILES.get(canonical, SYMBOL_PROFILES.get(symbol, {}))
+    if not profile:
+        # Fallback: try stripping common suffixes
+        for suffix in ("micro", ".micro", "m"):
+            base = symbol.removesuffix(suffix)
+            if base != symbol and base in SYMBOL_PROFILES:
+                return SYMBOL_PROFILES[base]
+    return profile
+
+
+def get_canonical_symbol(symbol: str) -> str:
+    """Resolve alias to canonical symbol name (e.g., GOLDmicro → GOLD)."""
+    return SYMBOL_ALIASES.get(symbol, symbol)
+
+
+def resolve_broker_symbol(symbol: str) -> str:
+    """Resolve canonical symbol to broker name via live engine (e.g., GOLD → GOLDmicro).
+
+    Falls back to the input symbol if the bot manager is unavailable.
+    """
+    try:
+        from app.api.routes.bot import _get_engine
+        return _get_engine(symbol).symbol
+    except Exception:
+        return symbol
+
+
+# Auto-register aliased profiles so SYMBOL_PROFILES["GOLDmicro"] works directly
+for _alias, _canonical in SYMBOL_ALIASES.items():
+    if _canonical in SYMBOL_PROFILES and _alias not in SYMBOL_PROFILES:
+        _profile = SYMBOL_PROFILES[_canonical].copy()
+        _profile["display_name"] = f"{_profile['display_name']} (Micro)"
+        _profile["canonical"] = _canonical
+        # Micro accounts typically have smaller lot sizes
+        _profile["default_lot"] = min(_profile["default_lot"], 0.1)
+        _profile["max_lot"] = min(_profile["max_lot"], 1.0)
+        SYMBOL_PROFILES[_alias] = _profile
+
 
 # Session profiles — SL/TP multiplier overrides by trading session
 SESSION_PROFILES = {
@@ -118,6 +167,7 @@ class Settings(BaseSettings):
     max_daily_loss: float = 0.03
     max_concurrent_trades: int = 3
     max_lot: float = 1.0
+    max_drawdown_from_peak: float = 0.15  # 15% absolute drawdown → halt
     use_ai_filter: bool = True
     ai_confidence_threshold: float = 0.7
     paper_trade: bool = False
@@ -129,6 +179,7 @@ class Settings(BaseSettings):
     enable_scale_in: bool = False     # enable momentum add-on positions
     max_scale_in_count: int = 1       # max add-on entries per position
     enable_partial_tp: bool = False   # enable close-and-reopen partial TP
+    enable_auto_strategy_switch: bool = False  # AI agent can switch strategies based on regime
 
     # Portfolio risk
     max_portfolio_leverage: float = 3.0  # block trades when total leverage exceeds this
@@ -172,6 +223,7 @@ class Settings(BaseSettings):
 
     # Agent
     agent_mode: str = "single"  # "single" (Phase C) or "multi" (Phase D: orchestrator + specialists)
+    trading_mode: str = "strategy"  # "strategy" (strategy-first, AI filter) | "ai_autonomous" (AI decides)
     rollout_mode: str = "shadow"  # "shadow" | "paper" | "micro" | "live" (Phase F gradual rollout)
 
     # Logging

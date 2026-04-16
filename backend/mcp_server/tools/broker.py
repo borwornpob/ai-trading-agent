@@ -138,6 +138,7 @@ async def place_order(
         lot = min(lot, MICRO_MAX_LOT)
 
     # ─── EXECUTE ORDER (live or micro) ───────────────────────────────────
+    logger.info(f"place_order [{symbol}] {order_type} lot={lot} sl={sl} tp={tp} mode={rollout_mode}")
     order_result = await _connector.place_order(
         symbol=symbol,
         order_type=order_type,
@@ -146,6 +147,7 @@ async def place_order(
         tp=tp,
         comment=f"[Agent:{rollout_mode}] {comment}",
     )
+    logger.info(f"place_order result [{symbol}]: {order_result}")
 
     if order_result.get("success"):
         await _guardrails.record_trade(is_win=True)  # Updated on close

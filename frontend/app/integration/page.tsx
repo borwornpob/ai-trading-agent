@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { PageInstructions } from "@/components/layout/PageInstructions";
+import { showSuccess, showError } from "@/lib/toast";
 import api from "@/lib/api";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -44,8 +45,17 @@ function MT5Logo() {
   );
 }
 
+function D2Logo() {
+  return (
+    <svg className="size-7" viewBox="0 0 180 180" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path fillRule="evenodd" clipRule="evenodd" d="M115.055 72.5C115.055 79.8638 109.086 85.8333 101.722 85.8333C94.3583 85.8333 88.3888 79.8638 88.3888 72.5C88.3888 65.1362 94.3583 59.1667 101.722 59.1667C109.086 59.1667 115.055 65.1362 115.055 72.5ZM81.9999 59.7778H28.6667L28.6665 86.4444H55.3332V125.556H81.9999V59.7778ZM128.755 59.7778H159.333L131.778 125.556H101.111L128.755 59.7778Z" fill="currentColor"/>
+    </svg>
+  );
+}
+
 const LOGOS: Record<string, () => React.ReactElement> = {
   anthropic: ClaudeLogo, mt5: MT5Logo, telegram: TelegramLogo,
+  economic_calendar: D2Logo, tradingview: D2Logo,
 };
 
 // ─── Page ───────────────────────────────────────────────────────────────────
@@ -74,8 +84,11 @@ export default function IntegrationPage() {
     try {
       const res = await api.get(`/api/integration/test/${id}`);
       setTestResults((prev) => ({ ...prev, [id]: res.data }));
+      if (res.data.status === "connected") showSuccess("Connection successful");
+      else showError("Connection failed", res.data.detail);
     } catch {
       setTestResults((prev) => ({ ...prev, [id]: { name: id, status: "error", latency_ms: 0, detail: "Failed" } }));
+      showError("Connection failed");
     } finally { setTesting(null); }
   };
 
@@ -84,10 +97,13 @@ export default function IntegrationPage() {
     try {
       const res = await api.get("/api/integration/status");
       const results: Record<string, TestResult> = {};
-      const keyMap: Record<string, string> = { "Anthropic API": "anthropic", "MT5 Bridge": "mt5", "Telegram": "telegram" };
+      const keyMap: Record<string, string> = { "Claude AI (Max)": "anthropic", "Anthropic API": "anthropic", "MT5 Bridge": "mt5", "Telegram": "telegram", "Economic Calendar": "economic_calendar", "TradingView": "tradingview" };
       for (const s of res.data.services) results[keyMap[s.name] || s.name] = s;
       setTestResults(results);
-    } catch { /* handled */ } finally { setTesting(null); }
+      const allConnected = Object.values(results).every((r) => r.status === "connected");
+      if (allConnected) showSuccess("All services connected");
+      else showError("Some services failed");
+    } catch { showError("Connection test failed"); } finally { setTesting(null); }
   };
 
   const openModal = (id: string) => {
@@ -104,8 +120,9 @@ export default function IntegrationPage() {
     try {
       await api.put("/api/integration/config", { integration_id: modalId, config: nonEmpty });
       setEditValues({});
+      showSuccess("Configuration saved");
       await fetchConfig();
-    } catch { /* handled */ } finally { setSaving(false); }
+    } catch { showError("Failed to save configuration"); } finally { setSaving(false); }
   };
 
   const modalIntg = integrations.find((i) => i.id === modalId);
@@ -113,7 +130,7 @@ export default function IntegrationPage() {
   const hasEdits = Object.values(editValues).some((v) => v.trim());
 
   return (
-    <div className="p-4 lg:p-6 space-y-6">
+    <div className="p-4 sm:p-6 xl:p-8 space-y-5 sm:space-y-6 page-enter">
       <PageHeader title="Integration" subtitle="Connect external services to enable agent capabilities">
         <button type="button" onClick={testAll} disabled={testing === "all"}
           className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50">
@@ -125,7 +142,7 @@ export default function IntegrationPage() {
 
         items={[
           "Connect external services here. Click Configure to add API keys, then Test Connection to verify.",
-          "MT5 requires a running MetaTrader 5 terminal. Claude AI needs an Anthropic API key. Telegram needs a bot token from @BotFather.",
+          "MT5 requires a running MetaTrader 5 terminal. Claude AI uses Max Subscription (OAuth). Telegram needs a bot token from @BotFather.",
         ]}
       />
 
@@ -141,7 +158,7 @@ export default function IntegrationPage() {
             const LogoComp = LOGOS[intg.id];
             return (
               <button key={intg.id} type="button" onClick={() => openModal(intg.id)}
-                className="rounded-xl border border-border bg-card p-5 text-left hover:border-primary/40 transition-all group">
+                className="rounded-xl border border-border bg-card p-4 text-left hover:border-primary/40 transition-all group">
                 <div className="flex items-center gap-3">
                   <div className="size-10 rounded-xl bg-muted/50 flex items-center justify-center group-hover:bg-muted transition-colors">
                     {LogoComp ? <LogoComp /> : null}

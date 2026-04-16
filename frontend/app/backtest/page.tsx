@@ -8,18 +8,20 @@ import { Badge } from "@/components/ui/badge";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tabs, TabsContent } from "@/components/ui/tabs";
+import type { LucideIcon } from "lucide-react";
 import {
   Play, BarChart3, TrendingUp, DollarSign, Target,
   AlertTriangle, Search, Loader2, FlaskConical, Zap, Footprints,
-  CheckCircle, XCircle,
+  CheckCircle, XCircle, Dice5,
 } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { PageInstructions } from "@/components/layout/PageInstructions";
 import { StatCard } from "@/components/ui/stat-card";
+import { showSuccess, showError } from "@/lib/toast";
 import { TIMEFRAMES } from "@/components/ui/timeframe-selector";
 import {
-  runBacktest, runOptimize, runWalkForward, getCurrentStrategy, getDataStatus, getSymbols,
+  runBacktest, runOptimize, runWalkForward, runMonteCarlo, runCointegration, runPermutationTest, runOverfittingScore, getCurrentStrategy, getDataStatus, getSymbols,
 } from "@/lib/api";
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -33,6 +35,11 @@ const STRATEGIES = [
   { value: "breakout", label: "Breakout" },
   { value: "mean_reversion", label: "Mean Reversion" },
   { value: "ml_signal", label: "ML Signal" },
+  { value: "dca", label: "DCA (ถัวเฉลี่ย)" },
+  { value: "grid", label: "Grid Trading" },
+  { value: "risk_parity", label: "Risk Parity" },
+  { value: "momentum_rank", label: "Momentum Rank" },
+  { value: "pair_spread", label: "Pair Spread" },
 ];
 
 
@@ -68,6 +75,27 @@ const STRATEGY_PARAMS: Record<string, ParamDef[]> = {
     { key: "min_bandwidth", label: "Min Bandwidth", defaults: [0.003, 0.005, 0.01] },
   ],
   ml_signal: [],
+  dca: [
+    { key: "interval_bars", label: "Interval (bars)", defaults: [10, 15, 20, 30, 50] },
+  ],
+  grid: [
+    { key: "grid_spacing_pips", label: "Grid Spacing (pips)", defaults: [3, 5, 8, 10] },
+    { key: "grid_levels", label: "Grid Levels", defaults: [3, 5, 7, 10] },
+    { key: "sma_period", label: "SMA Period", defaults: [15, 20, 30] },
+  ],
+  risk_parity: [
+    { key: "ema_fast", label: "EMA Fast", defaults: [15, 20, 25] },
+    { key: "ema_slow", label: "EMA Slow", defaults: [40, 50, 60] },
+    { key: "vol_lookback", label: "Vol Lookback", defaults: [30, 50, 80] },
+  ],
+  momentum_rank: [
+    { key: "lookback", label: "Momentum Lookback", defaults: [10, 15, 20, 30] },
+  ],
+  pair_spread: [
+    { key: "z_entry", label: "Z-Score Entry", defaults: [1.5, 2.0, 2.5, 3.0] },
+    { key: "z_exit", label: "Z-Score Exit", defaults: [0.3, 0.5, 0.8] },
+    { key: "lookback", label: "Lookback", defaults: [30, 50, 80] },
+  ],
 };
 
 function buildDefaultGridInputs(strat: string): Record<string, string> {
@@ -106,6 +134,20 @@ export default function BacktestPage() {
   const [wfRunning, setWfRunning] = useState(false);
   const [wfSplits, setWfSplits] = useState(5);
   const [wfTrainPct, setWfTrainPct] = useState(70);
+  // Monte Carlo state
+  const [mcResult, setMcResult] = useState<Record<string, unknown> | null>(null);
+  const [mcRunning, setMcRunning] = useState(false);
+  // Significance state
+  const [cointResult, setCointResult] = useState<Record<string, unknown> | null>(null);
+  const [cointRunning, setCointRunning] = useState(false);
+  const [permResult, setPermResult] = useState<Record<string, unknown> | null>(null);
+  const [permRunning, setPermRunning] = useState(false);
+  // Overfitting score state
+  const [ofResult, setOfResult] = useState<Record<string, unknown> | null>(null);
+  const [ofRunning, setOfRunning] = useState(false);
+  const [ofHistory, setOfHistory] = useState<Record<string, unknown>[]>([]);
+  // Active tab
+  const [activeTab, setActiveTab] = useState("backtest");
 
   const currentParams: ParamDef[] = STRATEGY_PARAMS[strategy] ?? [];
 
@@ -117,7 +159,15 @@ export default function BacktestPage() {
   useEffect(() => {
     getCurrentStrategy().then((res) => { if (res.data?.name) handleStrategyChange(res.data.name); }).catch(() => {});
     getDataStatus().then((res) => { if (Array.isArray(res.data) && res.data.length > 0) setHasDbData(true); }).catch(() => {});
-    getSymbols().then((res) => { const syms = res.data?.symbols || res.data; if (Array.isArray(syms) && syms.length > 0) setAvailableSymbols(syms); }).catch(() => {});
+    getSymbols().then((res) => {
+      const syms = res.data?.symbols || res.data;
+      if (Array.isArray(syms) && syms.length > 0) {
+        setAvailableSymbols(syms);
+        if (!syms.some((s: { symbol: string }) => s.symbol === symbol)) {
+          setSymbol(syms[0].symbol);
+        }
+      }
+    }).catch(() => {});
   }, []);
 
   const handleRun = async () => {
@@ -128,7 +178,8 @@ export default function BacktestPage() {
       else { params.count = count; }
       const res = await runBacktest(params as Parameters<typeof runBacktest>[0]);
       setResult(res.data);
-    } catch { /* handled */ } finally { setLoading(false); }
+      showSuccess("Backtest completed");
+    } catch { showError("Backtest failed"); } finally { setLoading(false); }
   };
 
   const handleOptimize = async () => {
@@ -148,7 +199,8 @@ export default function BacktestPage() {
       if (source === "db") { params.from_date = fromDate; params.to_date = toDate; }
       const res = await runOptimize(params as Parameters<typeof runOptimize>[0]);
       setOptResult(res.data);
-    } catch { /* handled */ } finally { setOptimizing(false); }
+      showSuccess("Optimization completed");
+    } catch { showError("Optimization failed"); } finally { setOptimizing(false); }
   };
 
   const handleWalkForward = async () => {
@@ -171,7 +223,50 @@ export default function BacktestPage() {
       else { params.count = count; }
       const res = await runWalkForward(params as Parameters<typeof runWalkForward>[0]);
       setWfResult(res.data);
-    } catch { /* handled */ } finally { setWfRunning(false); }
+      showSuccess("Walk-forward completed");
+    } catch { showError("Walk-forward failed"); } finally { setWfRunning(false); }
+  };
+
+  const handleMonteCarlo = async () => {
+    setMcRunning(true);
+    setMcResult(null);
+    try {
+      const params: Record<string, unknown> = {
+        strategy, symbol, timeframe, initial_balance: balance, source,
+      };
+      if (source === "db") { params.from_date = fromDate; params.to_date = toDate; }
+      else { params.count = count; }
+      const res = await runMonteCarlo(params as Parameters<typeof runMonteCarlo>[0]);
+      setMcResult(res.data);
+      showSuccess("Monte Carlo completed");
+    } catch { showError("Monte Carlo failed"); } finally { setMcRunning(false); }
+  };
+
+  const handleCointegration = async () => {
+    setCointRunning(true);
+    setCointResult(null);
+    try {
+      const pairMap: Record<string, string> = { GOLD: "USDJPY", USDJPY: "GOLD" };
+      const symbolB = pairMap[symbol] || "USDJPY";
+      const res = await runCointegration({ symbol_a: symbol, symbol_b: symbolB, timeframe, source });
+      setCointResult(res.data);
+      showSuccess("Cointegration test completed");
+    } catch { showError("Cointegration test failed"); } finally { setCointRunning(false); }
+  };
+
+  const handlePermutation = async () => {
+    setPermRunning(true);
+    setPermResult(null);
+    try {
+      const params: Record<string, unknown> = {
+        strategy, symbol, timeframe, source, n_permutations: 500, include_costs: true,
+      };
+      if (source === "db") { params.from_date = fromDate; params.to_date = toDate; }
+      else { params.count = count; }
+      const res = await runPermutationTest(params as Parameters<typeof runPermutationTest>[0]);
+      setPermResult(res.data);
+      showSuccess("Permutation test completed");
+    } catch { showError("Permutation test failed"); } finally { setPermRunning(false); }
   };
 
   const equityCurve = (result?.equity_curve as number[] || []).map((v, i) => ({ bar: i, equity: v }));
@@ -180,7 +275,7 @@ export default function BacktestPage() {
   const configForm = (
     <div className="rounded-xl border border-border bg-card p-4 space-y-4">
       {/* Row 1: Strategy + Symbol + Timeframe */}
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <div className="space-y-1">
           <label className="text-[11px] text-muted-foreground font-medium">Strategy</label>
           <Select value={strategy} onValueChange={(v) => v && handleStrategyChange(v)}>
@@ -213,7 +308,7 @@ export default function BacktestPage() {
       </div>
 
       {/* Row 2: Source + Date/Bars + Balance */}
-      <div className="grid grid-cols-3 gap-3 items-end">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
         <div className="space-y-1">
           <label className="text-[11px] text-muted-foreground font-medium">Data Source</label>
           <Select value={source} onValueChange={(v) => v && setSource(v)}>
@@ -253,7 +348,7 @@ export default function BacktestPage() {
   );
 
   return (
-    <div className="p-4 lg:p-6 space-y-6">
+    <div className="p-4 sm:p-6 xl:p-8 space-y-5 sm:space-y-6 page-enter">
       <PageHeader title="Backtester" subtitle="Test strategies against historical data" />
 
       <PageInstructions
@@ -265,12 +360,35 @@ export default function BacktestPage() {
         ]}
       />
 
-      <Tabs defaultValue="backtest" className="space-y-5">
-        <TabsList className="grid w-full grid-cols-3 max-w-md">
-          <TabsTrigger value="backtest"><FlaskConical className="size-3.5 mr-1.5" />Backtest</TabsTrigger>
-          <TabsTrigger value="optimize"><Zap className="size-3.5 mr-1.5" />Optimizer</TabsTrigger>
-          <TabsTrigger value="walk-forward"><Footprints className="size-3.5 mr-1.5" />Walk Forward</TabsTrigger>
-        </TabsList>
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-5">
+        <div className="flex gap-2 overflow-x-auto pb-1">
+          {([
+            { value: "backtest", label: "Backtest", icon: FlaskConical },
+            { value: "optimize", label: "Optimizer", icon: Zap },
+            { value: "walk-forward", label: "Walk Forward", icon: Footprints },
+            { value: "monte-carlo", label: "Monte Carlo", icon: Dice5 },
+            { value: "significance", label: "Significance", icon: CheckCircle },
+            { value: "overfitting", label: "Overfitting", icon: AlertTriangle },
+          ] as { value: string; label: string; icon: LucideIcon }[]).map((tab) => {
+            const Icon = tab.icon;
+            const isActive = activeTab === tab.value;
+            return (
+              <button
+                key={tab.value}
+                type="button"
+                onClick={() => setActiveTab(tab.value)}
+                className={`flex items-center gap-2 min-h-11 px-4 py-2.5 rounded-xl border-2 text-xs font-semibold transition-all whitespace-nowrap ${
+                  isActive
+                    ? "bg-card text-primary border-primary"
+                    : "bg-card text-foreground border-border hover:border-primary/50"
+                }`}
+              >
+                <Icon className="size-3.5" />
+                {tab.label}
+              </button>
+            );
+          })}
+        </div>
 
         {/* ── Backtest Tab ─────────────────────────────────────── */}
         <TabsContent value="backtest" className="space-y-4 mt-0">
@@ -526,6 +644,12 @@ export default function BacktestPage() {
                   <p className="text-xs text-muted-foreground mt-0.5">
                     IS Sharpe: {(wfResult.in_sample_avg_sharpe as number).toFixed(3)} → OOS Sharpe: {(wfResult.aggregate_oos_sharpe as number).toFixed(3)} (ratio: {(wfResult.overfitting_ratio as number).toFixed(2)})
                     {(wfResult.overfitting_ratio as number) < 0.5 ? " — large performance drop out-of-sample" : " — performance holds out-of-sample"}
+                    {(wfResult.oos_sharpe_ci as number[]) && (
+                      <> | 95% CI: [{(wfResult.oos_sharpe_ci as number[])[0].toFixed(3)}, {(wfResult.oos_sharpe_ci as number[])[1].toFixed(3)}]</>
+                    )}
+                    {wfResult.param_stability_score != null && (
+                      <> | Param Stability: {(wfResult.param_stability_score as number).toFixed(3)} ({(wfResult.param_stability_score as number) < 0.3 ? "stable" : (wfResult.param_stability_score as number) < 0.6 ? "moderate" : "unstable"})</>
+                    )}
                   </p>
                 </div>
               </div>
@@ -617,6 +741,372 @@ export default function BacktestPage() {
               <AlertTriangle className="size-4 text-red-400 shrink-0" />
               <p className="text-sm text-red-400">{String(wfResult.error)}</p>
             </div>
+          )}
+        </TabsContent>
+
+        {/* ── Monte Carlo Tab ────────────────────────────────── */}
+        <TabsContent value="monte-carlo" className="space-y-4 mt-0">
+          {configForm}
+
+          <div className="flex justify-end">
+            <Button onClick={handleMonteCarlo} disabled={mcRunning} className="rounded-lg font-medium min-w-35">
+              {mcRunning ? <Loader2 className="size-4 mr-1.5 animate-spin" /> : <Dice5 className="size-4 mr-1.5" />}
+              {mcRunning ? "Simulating..." : "Run Monte Carlo"}
+            </Button>
+          </div>
+
+          {mcResult && !mcResult.error && (
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+                <StatCard
+                  icon={Target}
+                  label="P(Profit)"
+                  value={`${((mcResult.probability_of_profit as number) * 100).toFixed(1)}%`}
+                  variant={(mcResult.probability_of_profit as number) > 0.5 ? "success" : "danger"}
+                />
+                <StatCard
+                  icon={AlertTriangle}
+                  label="P(Ruin)"
+                  value={`${((mcResult.probability_of_ruin as number) * 100).toFixed(1)}%`}
+                  variant={(mcResult.probability_of_ruin as number) < 0.1 ? "success" : "danger"}
+                />
+                <StatCard
+                  icon={DollarSign}
+                  label="Median Balance"
+                  value={`$${(mcResult.median_final_balance as number).toFixed(0)}`}
+                  variant={(mcResult.median_final_balance as number) > (balance || 10000) ? "success" : "warning"}
+                />
+                <StatCard
+                  icon={TrendingUp}
+                  label="P95 Drawdown"
+                  value={`${((mcResult.p95_max_drawdown as number) * 100).toFixed(1)}%`}
+                  variant={(mcResult.p95_max_drawdown as number) < 0.3 ? "success" : "danger"}
+                />
+                <StatCard
+                  icon={BarChart3}
+                  label="Simulations"
+                  value={mcResult.n_simulations as number}
+                />
+              </div>
+
+              {/* Balance range */}
+              <div className="rounded-xl border border-border bg-card p-4">
+                <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-3">Balance Distribution (1,000 simulations)</h3>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm">
+                  <div>
+                    <p className="text-[11px] text-muted-foreground">Pessimistic (P5)</p>
+                    <p className="font-bold font-mono text-red-400">${(mcResult.p5_final_balance as number).toFixed(0)}</p>
+                  </div>
+                  <div>
+                    <p className="text-[11px] text-muted-foreground">Median (P50)</p>
+                    <p className="font-bold font-mono">${(mcResult.median_final_balance as number).toFixed(0)}</p>
+                  </div>
+                  <div>
+                    <p className="text-[11px] text-muted-foreground">Mean</p>
+                    <p className="font-bold font-mono">${(mcResult.mean_final_balance as number).toFixed(0)}</p>
+                  </div>
+                  <div>
+                    <p className="text-[11px] text-muted-foreground">Optimistic (P95)</p>
+                    <p className="font-bold font-mono text-green-400">${(mcResult.p95_final_balance as number).toFixed(0)}</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {!mcResult && !mcRunning && (
+            <div className="flex flex-col items-center justify-center py-16 text-center">
+              <div className="size-12 rounded-xl bg-muted flex items-center justify-center mb-3">
+                <Dice5 className="size-6 text-muted-foreground" />
+              </div>
+              <p className="text-sm font-semibold">No Monte Carlo results yet</p>
+              <p className="text-xs text-muted-foreground mt-1 max-w-xs">
+                Monte Carlo shuffles trade order 1,000 times to test if profits depend on lucky sequence or real edge.
+              </p>
+            </div>
+          )}
+
+          {mcResult && "error" in mcResult && (
+            <div className="rounded-xl border border-red-500/20 bg-red-500/5 p-3 flex items-center gap-2">
+              <AlertTriangle className="size-4 text-red-400 shrink-0" />
+              <p className="text-sm text-red-400">{String(mcResult.error)}</p>
+            </div>
+          )}
+        </TabsContent>
+
+        {/* ── Significance Tab ───────────────────────────────── */}
+        <TabsContent value="significance" className="space-y-4 mt-0">
+          {configForm}
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            {/* Cointegration Test */}
+            <div className="rounded-xl border border-border bg-card p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Cointegration (ADF)</h3>
+                <Button onClick={handleCointegration} disabled={cointRunning} variant="outline" size="sm" className="h-7 text-xs rounded-lg">
+                  {cointRunning ? <Loader2 className="size-3 mr-1 animate-spin" /> : <Search className="size-3 mr-1" />}
+                  {cointRunning ? "Testing..." : "Test Pair"}
+                </Button>
+              </div>
+
+              {cointResult && !cointResult.error && (
+                <div className={`rounded-lg border p-3 ${
+                  cointResult.is_cointegrated
+                    ? "border-green-500/30 bg-green-500/5"
+                    : "border-red-500/30 bg-red-500/5"
+                }`}>
+                  <p className={`text-sm font-bold ${cointResult.is_cointegrated ? "text-green-400" : "text-red-400"}`}>
+                    {cointResult.verdict as string}
+                  </p>
+                  <div className="grid grid-cols-2 gap-2 mt-2 text-xs text-muted-foreground">
+                    <span>p-value: <strong className="text-foreground">{(cointResult.p_value as number).toFixed(4)}</strong></span>
+                    <span>Hedge ratio: <strong className="text-foreground">{(cointResult.hedge_ratio as number).toFixed(4)}</strong></span>
+                    <span>Test stat: {(cointResult.test_statistic as number).toFixed(4)}</span>
+                    <span>Observations: {cointResult.n_observations as number}</span>
+                  </div>
+                </div>
+              )}
+              {cointResult && Boolean(cointResult.error) && (
+                <p className="text-xs text-red-400">{String(cointResult.error)}</p>
+              )}
+              {!cointResult && (
+                <p className="text-xs text-muted-foreground text-center py-4">
+                  Tests if {symbol} and its pair are cointegrated (p &lt; 0.05 = valid for pair spread)
+                </p>
+              )}
+            </div>
+
+            {/* Permutation Test */}
+            <div className="rounded-xl border border-border bg-card p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Permutation Test</h3>
+                <Button onClick={handlePermutation} disabled={permRunning} variant="outline" size="sm" className="h-7 text-xs rounded-lg">
+                  {permRunning ? <Loader2 className="size-3 mr-1 animate-spin" /> : <Zap className="size-3 mr-1" />}
+                  {permRunning ? "Testing..." : "Test Significance"}
+                </Button>
+              </div>
+
+              {permResult && !permResult.error && (
+                <div className={`rounded-lg border p-3 ${
+                  permResult.is_significant
+                    ? "border-green-500/30 bg-green-500/5"
+                    : "border-red-500/30 bg-red-500/5"
+                }`}>
+                  <p className={`text-sm font-bold ${permResult.is_significant ? "text-green-400" : "text-red-400"}`}>
+                    {permResult.verdict as string}
+                  </p>
+                  <div className="grid grid-cols-2 gap-2 mt-2 text-xs text-muted-foreground">
+                    <span>p-value: <strong className="text-foreground">{(permResult.p_value as number).toFixed(4)}</strong></span>
+                    <span>Real Sharpe: <strong className="text-foreground">{(permResult.real_sharpe as number).toFixed(4)}</strong></span>
+                    <span>Shuffled mean: {(permResult.shuffled_mean as number).toFixed(4)}</span>
+                    <span>Shuffled std: {(permResult.shuffled_std as number).toFixed(4)}</span>
+                  </div>
+                </div>
+              )}
+              {permResult && Boolean(permResult.error) && (
+                <p className="text-xs text-red-400">{String(permResult.error)}</p>
+              )}
+              {!permResult && (
+                <p className="text-xs text-muted-foreground text-center py-4">
+                  Shuffles signals 500 times to test if strategy beats random (p &lt; 0.05 = real edge)
+                </p>
+              )}
+            </div>
+          </div>
+        </TabsContent>
+
+        {/* ── Overfitting Score Tab ──────────────────────────────── */}
+        <TabsContent value="overfitting" className="space-y-4 mt-0">
+          <div className="border border-border rounded-lg p-4 bg-card space-y-3">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-medium">Composite Overfitting Score</h3>
+              <Button
+                onClick={async () => {
+                  setOfRunning(true);
+                  setOfResult(null);
+                  try {
+                    const res = await runOverfittingScore({
+                      strategy, symbol, timeframe,
+                      source, count,
+                    });
+                    const data = res.data as Record<string, unknown>;
+                    setOfResult(data);
+                    // Add to comparison history
+                    setOfHistory((prev) => {
+                      const filtered = prev.filter(
+                        (h) => !(h.strategy === data.strategy && h.symbol === data.symbol)
+                      );
+                      return [...filtered, data];
+                    });
+                    showSuccess(`Overfitting score: ${data.overfitting_pct}% (${data.grade})`);
+                  } catch {
+                    showError("Overfitting score computation failed");
+                  } finally {
+                    setOfRunning(false);
+                  }
+                }}
+                disabled={ofRunning}
+                size="sm"
+              >
+                {ofRunning ? <Loader2 className="size-3.5 mr-1.5 animate-spin" /> : <Search className="size-3.5 mr-1.5" />}
+                {ofRunning ? "Computing..." : "Compute Score"}
+              </Button>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Runs walk-forward, permutation test, and monte carlo analysis concurrently. Auto-generates parameter grid from strategy profiles.
+            </p>
+          </div>
+
+          {ofResult && !("error" in ofResult) && (
+            <>
+              {/* Score Display */}
+              <div className={`border rounded-lg p-6 flex flex-col items-center gap-3 ${
+                (ofResult.grade === "healthy") ? "border-green-500/30 bg-green-500/5" :
+                (ofResult.grade === "moderate") ? "border-amber-500/30 bg-amber-500/5" :
+                "border-red-500/30 bg-red-500/5"
+              }`}>
+                <div className="flex items-center gap-3">
+                  {ofResult.grade === "healthy" ? <CheckCircle className="size-8 text-green-400" /> :
+                   ofResult.grade === "moderate" ? <AlertTriangle className="size-8 text-amber-400" /> :
+                   <XCircle className="size-8 text-red-400" />}
+                  <span className={`text-5xl font-bold tabular-nums ${
+                    (ofResult.grade === "healthy") ? "text-green-400" :
+                    (ofResult.grade === "moderate") ? "text-amber-400" :
+                    "text-red-400"
+                  }`}>
+                    {String(ofResult.overfitting_pct)}%
+                  </span>
+                </div>
+                <Badge variant={
+                  ofResult.grade === "healthy" ? "default" :
+                  ofResult.grade === "moderate" ? "secondary" :
+                  "destructive"
+                }>
+                  {String(ofResult.grade).toUpperCase()}
+                </Badge>
+                <p className="text-xs text-muted-foreground">
+                  {String(ofResult.strategy)} on {String(ofResult.symbol)}
+                  {Boolean(ofResult.partial) && (
+                    <span className="ml-2 text-amber-400">
+                      (partial — skipped: {(ofResult.skipped_tests as string[]).join(", ")})
+                    </span>
+                  )}
+                </p>
+                {/* Progress bar */}
+                <div className="w-full max-w-md h-3 bg-muted rounded-full overflow-hidden">
+                  <div
+                    className={`h-full rounded-full transition-all ${
+                      (ofResult.grade === "healthy") ? "bg-green-500" :
+                      (ofResult.grade === "moderate") ? "bg-amber-500" :
+                      "bg-red-500"
+                    }`}
+                    style={{ width: `${Math.min(100, Number(ofResult.overfitting_pct))}%` }}
+                  />
+                </div>
+              </div>
+
+              {/* Component Breakdown */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                {Object.entries(ofResult.components as Record<string, number>).map(([key, value]) => (
+                  <StatCard
+                    key={key}
+                    icon={
+                      key === "walk_forward" ? Footprints :
+                      key === "permutation" ? Dice5 :
+                      key === "param_stability" ? Target :
+                      BarChart3
+                    }
+                    label={key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())}
+                    value={`${value}%`}
+                    variant={value < 30 ? "success" : value < 60 ? "warning" : "danger"}
+                  />
+                ))}
+              </div>
+
+              {/* Walk-Forward Detail */}
+              {ofResult.walk_forward && (
+                <div className="border border-border rounded-lg p-4 bg-card space-y-2">
+                  <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Walk-Forward Detail</h4>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
+                    <div><span className="text-muted-foreground">IS Sharpe:</span> {String((ofResult.walk_forward as Record<string, unknown>).is_sharpe)}</div>
+                    <div><span className="text-muted-foreground">OOS Sharpe:</span> {String((ofResult.walk_forward as Record<string, unknown>).oos_sharpe)}</div>
+                    <div><span className="text-muted-foreground">Ratio:</span> {String((ofResult.walk_forward as Record<string, unknown>).overfitting_ratio)}</div>
+                    <div><span className="text-muted-foreground">Param CV:</span> {String((ofResult.walk_forward as Record<string, unknown>).param_stability_score ?? "N/A")}</div>
+                  </div>
+                </div>
+              )}
+
+              {/* Permutation Detail */}
+              {ofResult.permutation && (
+                <div className="border border-border rounded-lg p-4 bg-card space-y-2">
+                  <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Permutation Test Detail</h4>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
+                    <div><span className="text-muted-foreground">Real Sharpe:</span> {String((ofResult.permutation as Record<string, unknown>).real_sharpe)}</div>
+                    <div><span className="text-muted-foreground">p-value:</span> {String((ofResult.permutation as Record<string, unknown>).p_value)}</div>
+                    <div><span className="text-muted-foreground">Significant:</span> {(ofResult.permutation as Record<string, unknown>).is_significant ? "Yes" : "No"}</div>
+                    <div><span className="text-muted-foreground">Shuffled Mean:</span> {String((ofResult.permutation as Record<string, unknown>).shuffled_mean)}</div>
+                  </div>
+                </div>
+              )}
+
+              {/* Monte Carlo Detail */}
+              {ofResult.monte_carlo && (
+                <div className="border border-border rounded-lg p-4 bg-card space-y-2">
+                  <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Monte Carlo Detail</h4>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
+                    <div><span className="text-muted-foreground">Ruin Prob:</span> {String((ofResult.monte_carlo as Record<string, unknown>).probability_of_ruin)}</div>
+                    <div><span className="text-muted-foreground">Profit Prob:</span> {String((ofResult.monte_carlo as Record<string, unknown>).probability_of_profit)}</div>
+                    <div><span className="text-muted-foreground">p95 DD:</span> {String((ofResult.monte_carlo as Record<string, unknown>).p95_max_drawdown)}</div>
+                    <div><span className="text-muted-foreground">Median Balance:</span> {String((ofResult.monte_carlo as Record<string, unknown>).median_final_balance)}</div>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+
+          {ofResult && "error" in ofResult && (
+            <div className="border border-red-500/30 bg-red-500/5 rounded-lg p-4 text-red-400 text-sm">
+              {String(ofResult.error)}
+            </div>
+          )}
+
+          {/* Comparison History */}
+          {ofHistory.length > 1 && (
+            <div className="border border-border rounded-lg p-4 bg-card space-y-3">
+              <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Strategy Comparison</h4>
+              <div className="space-y-2">
+                {ofHistory.map((h, i) => {
+                  const pct = Number(h.overfitting_pct);
+                  const grade = String(h.grade);
+                  return (
+                    <div key={`${String(h.strategy)}-${String(h.symbol)}`} className="flex items-center gap-3">
+                      <span className="text-sm w-32 truncate">{String(h.strategy)}</span>
+                      <div className="flex-1 h-4 bg-muted rounded-full overflow-hidden">
+                        <div
+                          className={`h-full rounded-full transition-all ${
+                            grade === "healthy" ? "bg-green-500" :
+                            grade === "moderate" ? "bg-amber-500" :
+                            "bg-red-500"
+                          }`}
+                          style={{ width: `${Math.min(100, pct)}%` }}
+                        />
+                      </div>
+                      <span className={`text-sm font-mono w-14 text-right ${
+                        grade === "healthy" ? "text-green-400" :
+                        grade === "moderate" ? "text-amber-400" :
+                        "text-red-400"
+                      }`}>{pct}%</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {!ofResult && !ofRunning && (
+            <p className="text-xs text-muted-foreground text-center py-4">
+              Combines walk-forward ratio (40%), permutation p-value (25%), param stability (20%), and monte carlo ruin probability (15%) into a single overfitting score
+            </p>
           )}
         </TabsContent>
       </Tabs>

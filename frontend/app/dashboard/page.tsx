@@ -3,8 +3,6 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Switch } from "@/components/ui/switch";
-import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -14,20 +12,34 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
 import {
-  TrendingUp, Layers, Activity, Play, Square, ShieldAlert, Wifi, WifiOff, DollarSign,
+  TrendingUp, Layers, Activity, Play, Square, ShieldAlert, Wifi, WifiOff, DollarSign, Loader2,
 } from "lucide-react";
-import Markdown from "react-markdown";
+import dynamic from "next/dynamic";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { PageInstructions } from "@/components/layout/PageInstructions";
 import { StatCard } from "@/components/ui/stat-card";
 import { AnimatedCounter } from "@/components/ui/animated-counter";
 import SentimentBadge from "@/components/ai/SentimentBadge";
 import NewsCard from "@/components/ai/NewsCard";
-import PriceChart from "@/components/chart/PriceChart";
 import EventFeed from "@/components/dashboard/EventFeed";
-import {
-  AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-} from "recharts";
+
+const Markdown = dynamic(() => import("react-markdown"), { ssr: false });
+const PriceChart = dynamic(() => import("@/components/chart/PriceChart"), { ssr: false, loading: () => <Skeleton className="h-56 sm:h-72 xl:h-80 rounded-xl" /> });
+const LazyRecharts = dynamic(() => import("recharts").then((mod) => {
+  const { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } = mod;
+  return { default: ({ data }: { data: { time: string; equity: number }[] }) => (
+    <ResponsiveContainer width="100%" height={180}>
+      <AreaChart data={data}>
+        <defs><linearGradient id="eqGrad" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#9fe870" stopOpacity={0.3} /><stop offset="100%" stopColor="#9fe870" stopOpacity={0} /></linearGradient></defs>
+        <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+        <XAxis dataKey="time" hide fontSize={10} className="fill-muted-foreground" />
+        <YAxis fontSize={10} className="fill-muted-foreground" />
+        <Tooltip contentStyle={{ backgroundColor: "var(--popover)", border: "1px solid var(--border)", borderRadius: "12px", color: "var(--foreground)" }} />
+        <Area type="monotone" dataKey="equity" stroke="#9fe870" fill="url(#eqGrad)" strokeWidth={2} />
+      </AreaChart>
+    </ResponsiveContainer>
+  )};
+}), { ssr: false, loading: () => <Skeleton className="h-[180px] rounded-xl" /> });
 import {
   getBotStatus, startBot, stopBot, emergencyStop, getPositions,
   getLatestSentiment, getSentimentHistory, updateSettings, updateStrategy, getAccount,
@@ -35,8 +47,12 @@ import {
   getBotEvents,
   getSymbols,
   getAnalytics,
+  resetPeakBalance,
 } from "@/lib/api";
 import { useWebSocket } from "@/lib/websocket";
+import { showSuccess, showError } from "@/lib/toast";
+import { ErrorBoundary } from "@/components/ui/error-boundary";
+import { SkeletonCard, SkeletonChart } from "@/components/ui/skeleton-compositions";
 import { useBotStore } from "@/store/botStore";
 import { SymbolTabs } from "@/components/ui/symbol-tabs";
 import { TimeframeSelector, TIMEFRAMES } from "@/components/ui/timeframe-selector";
@@ -48,15 +64,36 @@ const STRATEGY_TH: Record<string, string> = {
   breakout: "ทะลุแนวรับ/ต้าน",
   ai_autonomous: "AI อัตโนมัติ",
   scalping: "สแคลป์ปิง",
+  ema_crossover: "EMA Crossover",
+  rsi_filter: "RSI Filter",
+  dca: "DCA ถัวเฉลี่ย",
+  grid: "Grid เทรด",
+  risk_parity: "Risk Parity",
+  momentum_rank: "Momentum Rank",
+  pair_spread: "Pair Spread",
+  ml_signal: "ML Signal",
 };
 
 export default function DashboardPage() {
-  const {
-    activeSymbol, symbols, status, symbolStatuses, positions, sentiment, tick, ticks, events,
-    setActiveSymbol, setSymbols, setStatus, setSymbolStatuses, setPositions, setSentiment, setTick, addEvent,
-  } = useBotStore();
+  const activeSymbol = useBotStore((s) => s.activeSymbol);
+  const symbols = useBotStore((s) => s.symbols);
+  const status = useBotStore((s) => s.status);
+  const symbolStatuses = useBotStore((s) => s.symbolStatuses);
+  const positions = useBotStore((s) => s.positions);
+  const sentiment = useBotStore((s) => s.sentiment);
+  const tick = useBotStore((s) => s.tick);
+  const ticks = useBotStore((s) => s.ticks);
+  const events = useBotStore((s) => s.events);
+  const setActiveSymbol = useBotStore((s) => s.setActiveSymbol);
+  const setSymbols = useBotStore((s) => s.setSymbols);
+  const setStatus = useBotStore((s) => s.setStatus);
+  const setSymbolStatuses = useBotStore((s) => s.setSymbolStatuses);
+  const setPositions = useBotStore((s) => s.setPositions);
+  const setSentiment = useBotStore((s) => s.setSentiment);
+  const setTick = useBotStore((s) => s.setTick);
+  const addEvent = useBotStore((s) => s.addEvent);
   const [loading, setLoading] = useState(true);
-  const [account, setAccount] = useState<{ balance: number; equity: number; margin: number; free_margin: number; profit: number; accounts?: { connector: string; balance: number; equity: number; currency: string }[] } | null>(null);
+  const [account, setAccount] = useState<{ balance: number; equity: number; margin: number; free_margin: number; profit: number; peak_balance?: number; drawdown_pct?: number; accounts?: { connector: string; balance: number; equity: number; currency: string }[] } | null>(null);
   const [dailyPnl, setDailyPnl] = useState<{ daily_pnl: number; trade_count: number; wins: number; losses: number } | null>(null);
   const [news, setNews] = useState<
     { headline: string; source: string; sentiment_label: string; sentiment_score: number; created_at: string }[]
@@ -68,7 +105,7 @@ export default function DashboardPage() {
 
   const fetchData = useCallback(async () => {
     try {
-      const [statusRes, symbolsRes, posRes, sentRes, newsRes, accRes, pnlRes, analyticsRes] = await Promise.all([
+      const [statusRes, symbolsRes, posRes, sentRes, newsRes, accRes, pnlRes, analyticsRes, eventsRes] = await Promise.all([
         getBotStatus().catch(() => null),
         getSymbols().catch(() => null),
         getPositions().catch(() => null),
@@ -77,6 +114,7 @@ export default function DashboardPage() {
         getAccount().catch(() => null),
         getDailyPnl().catch(() => null),
         getAnalytics(undefined, 30).catch(() => null),
+        getBotEvents({ days: 1, limit: 50 }).catch(() => null),
       ]);
 
       // Aggregate status response has { symbols: { XAUUSD: {...}, ... }, active_count, total_count }
@@ -102,12 +140,12 @@ export default function DashboardPage() {
       if (posRes?.data?.positions) setPositions(posRes.data.positions);
       if (sentRes?.data) setSentiment(sentRes.data);
       if (newsRes?.data?.history) setNews(newsRes.data.history.slice(0, 5));
-      if (accRes?.data) setAccount(accRes.data);
-      if (pnlRes?.data) setDailyPnl(pnlRes.data);
+      // Only update if data actually returned (prevent clearing on API failure)
+      if (accRes?.data?.balance !== undefined) setAccount(accRes.data);
+      if (pnlRes?.data?.daily_pnl !== undefined) setDailyPnl(pnlRes.data);
       if (analyticsRes?.data) setAnalytics(analyticsRes.data);
 
       // Load persisted events from DB (survives page refresh)
-      const eventsRes = await getBotEvents({ days: 1, limit: 50 }).catch(() => null);
       if (eventsRes?.data?.events) {
         const dbEvents = eventsRes.data.events.map((e: { type: string; message: string; created_at: string }) => ({
           type: e.type,
@@ -115,10 +153,9 @@ export default function DashboardPage() {
           timestamp: e.created_at,
         }));
         // Only seed if store is empty (don't overwrite live WS events)
-        if (events.length === 0 && dbEvents.length > 0) {
-          for (const ev of dbEvents.reverse()) {
-            addEvent(ev);
-          }
+        // Use seedEvents (no unread increment) for DB-loaded historical events
+        if (useBotStore.getState().events.length === 0 && dbEvents.length > 0) {
+          useBotStore.getState().seedEvents(dbEvents.reverse());
         }
       }
     } catch (e) {
@@ -179,17 +216,16 @@ export default function DashboardPage() {
     });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const handleStart = async () => { await startBot(activeSymbol); fetchData(); };
-  const handleStop = async () => { await stopBot(activeSymbol); fetchData(); };
+  const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const handleStart = async () => { setActionLoading("start"); try { await startBot(activeSymbol); showSuccess(`${activeSymbol} bot started`); await fetchData(); } catch (e) { showError(`Failed to start ${activeSymbol}`); } finally { setActionLoading(null); } };
+  const handleStop = async () => { setActionLoading("stop"); try { await stopBot(activeSymbol); showSuccess(`${activeSymbol} bot stopped`); await fetchData(); } catch (e) { showError(`Failed to stop ${activeSymbol}`); } finally { setActionLoading(null); } };
   const handleEmergencyStop = async () => {
     if (confirm("Are you sure? This will close ALL positions for " + activeSymbol + " immediately.")) {
-      await emergencyStop(activeSymbol);
-      fetchData();
+      try { await emergencyStop(activeSymbol); showSuccess(`Emergency stop executed for ${activeSymbol}`); await fetchData(); } catch { showError("Emergency stop failed"); }
     }
   };
   const handleAIFilterToggle = async (enabled: boolean) => {
-    await updateSettings({ symbol: activeSymbol, use_ai_filter: enabled });
-    fetchData();
+    try { await updateSettings({ symbol: activeSymbol, use_ai_filter: enabled }); showSuccess(`AI filter ${enabled ? "enabled" : "disabled"}`); await fetchData(); } catch { showError("Failed to update AI filter"); }
   };
 
   const [chartTimeframe, setChartTimeframe] = useState("M5");
@@ -221,19 +257,19 @@ export default function DashboardPage() {
         <Skeleton className="h-8 w-48" />
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
           {Array.from({ length: 4 }).map((_, i) => (
-            <Skeleton key={i} className="h-24 sm:h-28 rounded-2xl" />
+            <SkeletonCard key={i} lines={1} />
           ))}
         </div>
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 sm:gap-4">
-          <Skeleton className="h-60 sm:h-80 rounded-2xl lg:col-span-3" />
-          <Skeleton className="h-60 sm:h-80 rounded-2xl" />
+          <SkeletonChart className="lg:col-span-3" />
+          <SkeletonCard lines={4} />
         </div>
       </div>
     );
   }
 
   return (
-    <div className="p-4 sm:p-6 xl:p-8 space-y-5 sm:space-y-6">
+    <div className="p-4 sm:p-6 xl:p-8 space-y-5 sm:space-y-6 page-enter">
       <PageHeader title="Dashboard" subtitle="Real-time trading overview">
         {activeTick && (
           <div className="border border-border rounded-full px-3 py-1.5 sm:px-4 sm:py-2 flex items-center gap-2 sm:gap-3 bg-card">
@@ -292,7 +328,7 @@ export default function DashboardPage() {
 
       {/* Account Balances Bar */}
       {account && (
-        <div className="flex flex-wrap gap-4 items-center px-4 py-3 rounded-2xl border border-border bg-card animate-fade-in">
+        <div className="flex flex-wrap gap-4 items-center px-4 py-3 rounded-2xl border border-border bg-card">
           {account.accounts && account.accounts.length > 1 ? (
             account.accounts.map((acc, i) => (
               <div key={i} className="flex items-center gap-3">
@@ -326,7 +362,7 @@ export default function DashboardPage() {
       )}
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 animate-fade-in" style={{ animationDelay: "0.05s" }}>
+      <div className="grid grid-cols-3 lg:grid-cols-6 gap-2">
         <StatCard
           icon={TrendingUp}
           label="Unrealized P&L"
@@ -351,10 +387,37 @@ export default function DashboardPage() {
           value={status?.state || "UNKNOWN"}
           variant={isRunning ? "success" : "warning"}
         />
+        <div
+          className="cursor-pointer"
+          title="Click to reset peak balance"
+          onClick={async () => {
+            if (confirm("Reset peak balance to current balance?")) {
+              try {
+                await resetPeakBalance();
+                window.location.reload();
+              } catch (e) {
+                console.error("Reset peak failed:", e);
+              }
+            }
+          }}
+        >
+          <StatCard
+            icon={ShieldAlert}
+            label="Drawdown"
+            value={account?.drawdown_pct != null ? `${(account.drawdown_pct * 100).toFixed(1)}%` : "—"}
+            subtitle={account?.peak_balance ? `Peak: $${account.peak_balance.toFixed(0)} (click reset)` : undefined}
+            variant={
+              !account?.drawdown_pct ? "default"
+              : account.drawdown_pct < 0.05 ? "success"
+              : account.drawdown_pct < 0.10 ? "warning"
+              : "danger"
+            }
+          />
+        </div>
       </div>
 
       {/* Controls + Price Chart */}
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-4 xl:gap-6 animate-fade-in" style={{ animationDelay: "0.1s" }}>
+      <div className="grid grid-cols-1 lg:grid-cols-4 gap-4 xl:gap-6">
         <Card className="order-1 lg:order-2">
           <CardHeader className="p-3 sm:p-6">
             <CardTitle className="text-sm font-bold">Controls</CardTitle>
@@ -363,20 +426,20 @@ export default function DashboardPage() {
             <div className="flex gap-2">
               <Button
                 onClick={handleStart}
-                disabled={isRunning}
+                disabled={isRunning || actionLoading === "start"}
                 className="flex-1 rounded-full bg-primary text-primary-foreground font-semibold hover-scale"
               >
-                <Play className="size-4 mr-1.5" />
-                Start
+                {actionLoading === "start" ? <Loader2 className="size-4 mr-1.5 animate-spin" /> : <Play className="size-4 mr-1.5" />}
+                {actionLoading === "start" ? "Starting..." : "Start"}
               </Button>
               <Button
                 onClick={handleStop}
-                disabled={!isRunning}
+                disabled={!isRunning || actionLoading === "stop"}
                 variant="secondary"
                 className="flex-1 rounded-full"
               >
-                <Square className="size-3.5 mr-1.5" />
-                Stop
+                {actionLoading === "stop" ? <Loader2 className="size-4 mr-1.5 animate-spin" /> : <Square className="size-3.5 mr-1.5" />}
+                {actionLoading === "stop" ? "Stopping..." : "Stop"}
               </Button>
             </div>
             <Button
@@ -390,95 +453,66 @@ export default function DashboardPage() {
 
             <Separator />
 
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-1">
-              <div className="flex items-center justify-between">
-                <span className="text-sm text-muted-foreground font-medium">Paper Trade</span>
-                <Switch
-                  checked={status?.paper_trade ?? false}
-                  onCheckedChange={async (v) => { await updateSettings({ symbol: activeSymbol, paper_trade: v }); fetchData(); }}
-                />
-              </div>
-
-              </div>
-
             {status?.paper_trade && (
               <p className="text-xs text-amber-600 dark:text-amber-400 bg-amber-100 dark:bg-amber-400/10 rounded-xl px-3 py-1.5 font-medium">
-                Paper mode — no real orders sent to MT5
+                Paper mode — no real orders
               </p>
             )}
 
             <div className="space-y-2 text-xs text-muted-foreground">
-              <div className="flex items-center justify-between">
+              <div className="flex justify-between">
                 <span className="font-medium">Mode</span>
-                <span className="font-semibold text-primary">AI Autonomous</span>
+                <span className="font-semibold text-green-400">Strategy-First</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="font-medium">Strategy</span>
+                <span className="text-foreground font-semibold">{status?.strategy || "—"}</span>
               </div>
               <div className="flex justify-between">
                 <span className="font-medium">Symbol</span>
                 <span className="text-foreground font-semibold">{activeSymbol}</span>
               </div>
-              <div className="flex items-center justify-between">
+              <div className="flex justify-between">
                 <span className="font-medium">Timeframe</span>
-                <Select
-                  value={status?.timeframe || "M15"}
-                  onValueChange={async (v) => { if (v) { await updateSettings({ symbol: activeSymbol, timeframe: v }); fetchData(); } }}
-                >
-                  <SelectTrigger className="w-24 h-7 text-xs">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {TIMEFRAMES.map((tf) => (
-                      <SelectItem key={tf} value={tf}>{tf}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <span className="text-foreground font-semibold">{status?.timeframe || "M15"}</span>
               </div>
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="font-medium">Lot Size</span>
-                  <Select
-                    value={status?.fixed_lot != null ? "fixed" : "auto"}
-                    onValueChange={async (v) => {
-                      if (v === "auto") {
-                        await updateSettings({ symbol: activeSymbol, lot_mode: "auto" });
-                      } else {
-                        const lot = status?.fixed_lot ?? activeSymbolInfo?.default_lot ?? 0.1;
-                        await updateSettings({ symbol: activeSymbol, lot_mode: "fixed", fixed_lot: lot });
-                      }
-                      fetchData();
-                    }}
-                  >
-                    <SelectTrigger className="w-24 h-7 text-xs">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="auto">Auto (AI)</SelectItem>
-                      <SelectItem value="fixed">Fixed</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                {status?.fixed_lot != null && (
+              <div className="flex justify-between">
+                <span className="font-medium">Lot</span>
+                <span className="text-foreground font-semibold">{status?.fixed_lot != null ? `Fixed ${status.fixed_lot}` : "Auto"}</span>
+              </div>
+              {(status?.multi_tf_regime || status?.regime) && (
+                <div className="space-y-1">
                   <div className="flex items-center justify-between">
-                    <span className="font-medium text-muted-foreground/70">Fixed Lot</span>
-                    <Input
-                      type="number"
-                      step="0.01"
-                      min="0.01"
-                      max={status?.max_lot ?? 100}
-                      className="w-24 h-7 text-xs text-right font-mono"
-                      defaultValue={status.fixed_lot}
-                      key={`${activeSymbol}-fixed-${status.fixed_lot}`}
-                      onBlur={async (e) => {
-                        const v = parseFloat(e.target.value);
-                        if (v >= 0.01 && v <= (status?.max_lot ?? 100)) {
-                          await updateSettings({ symbol: activeSymbol, lot_mode: "fixed", fixed_lot: v });
-                          fetchData();
-                        }
-                      }}
-                      onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }}
-                    />
+                    <span className="font-medium">Regime</span>
+                    <Badge variant="outline" className={`text-[10px] ${
+                      (status.multi_tf_regime?.composite || status.regime) === "trending_high_vol" ? "border-red-500/30 text-red-400" :
+                      (status.multi_tf_regime?.composite || status.regime) === "ranging" ? "border-blue-500/30 text-blue-400" :
+                      (status.multi_tf_regime?.composite || status.regime) === "trending_low_vol" ? "border-green-500/30 text-green-400" :
+                      "border-border text-muted-foreground"
+                    }`}>
+                      {(status.multi_tf_regime?.composite || status.regime) === "trending_high_vol" ? "🔥 Trend+HV" :
+                       (status.multi_tf_regime?.composite || status.regime) === "trending_low_vol" ? "📊 Trend+LV" :
+                       (status.multi_tf_regime?.composite || status.regime) === "ranging" ? "↔️ Ranging" :
+                       "⚖️ Normal"}
+                      {status.multi_tf_regime?.style && ` · ${status.multi_tf_regime.style}`}
+                    </Badge>
                   </div>
-                )}
-              </div>
+                  {status.multi_tf_regime && (
+                    <div className="flex gap-1 justify-end">
+                      {(["m15", "h1", "h4"] as const).map((tf) => {
+                        const r = status.multi_tf_regime?.[tf];
+                        const short = r === "trending_high_vol" ? "T↑" : r === "trending_low_vol" ? "T↓" : r === "ranging" ? "R" : "N";
+                        const color = r === "trending_high_vol" ? "text-red-400" : r === "ranging" ? "text-blue-400" : r === "trending_low_vol" ? "text-green-400" : "text-muted-foreground";
+                        return <span key={tf} className={`text-[9px] font-mono ${color}`}>{tf.toUpperCase()}:{short}</span>;
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
+              <Separator />
+              <a href="/settings" className="text-[11px] text-primary hover:underline">
+                Settings
+              </a>
             </div>
           </CardContent>
         </Card>
@@ -520,12 +554,14 @@ export default function DashboardPage() {
         ) : (
           <Card className="order-2 lg:order-1 lg:col-span-3">
             <CardHeader className="p-3 sm:p-6">
-              <CardTitle className="text-sm font-bold flex items-center justify-between">
-                <div className="flex items-center gap-2 sm:gap-3">
-                  <span>{activeSymbolInfo?.display_name || activeSymbol}</span>
-                  <SentimentBadge label={sentiment?.label || "neutral"} score={sentiment?.score || 0} size="sm" />
+              <CardTitle className="text-sm font-bold space-y-2 sm:space-y-0">
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <div className="flex items-center gap-2 sm:gap-3">
+                    <span>{activeSymbolInfo?.display_name || activeSymbol}</span>
+                    <SentimentBadge label={sentiment?.label || "neutral"} score={sentiment?.score || 0} size="sm" />
+                  </div>
+                  <TimeframeSelector value={chartTimeframe} onChange={setChartTimeframe} />
                 </div>
-                <TimeframeSelector value={chartTimeframe} onChange={setChartTimeframe} />
               </CardTitle>
             </CardHeader>
             <CardContent className="h-56 sm:h-72 xl:h-80 p-3 pt-0 sm:p-6 sm:pt-0">
@@ -540,23 +576,29 @@ export default function DashboardPage() {
       </div>
 
       {/* AI Decision + News + Positions + Events — single column */}
-      <div className="space-y-4 xl:space-y-6 animate-fade-in" style={{ animationDelay: "0.15s" }}>
+      <div className="space-y-4 xl:space-y-6">
         {/* AI Decision */}
         {status?.ai_decision && (
           <Card>
             <CardHeader className="p-3 sm:p-6">
-              <CardTitle className="text-sm font-bold flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <Activity className="size-4 text-primary" />
-                  AI วิเคราะห์ล่าสุด
+              <CardTitle className="text-sm font-bold space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Activity className="size-4 text-primary" />
+                    AI วิเคราะห์ล่าสุด
+                    {(() => {
+                      const d = (status.ai_decision.decision as string || "").toLowerCase();
+                      const signal = d.includes("buy") && !d.includes("hold") ? "BUY" : d.includes("sell") && !d.includes("hold") ? "SELL" : "HOLD";
+                      const color = signal === "BUY" ? "bg-green-500/10 text-green-400 border-green-500/20" : signal === "SELL" ? "bg-red-500/10 text-red-400 border-red-500/20" : "bg-zinc-500/10 text-zinc-400 border-zinc-500/20";
+                      return <Badge variant="outline" className={`text-[10px] ${color}`}>{signal}</Badge>;
+                    })()}
+                  </div>
                 </div>
-                <div className="flex items-center gap-3 text-xs font-normal text-muted-foreground">
-                  <span className="bg-primary/10 text-primary px-2 py-0.5 rounded-full font-medium">
-                    {STRATEGY_TH[status.ai_decision.strategy] || status.ai_decision.strategy?.replace(/_/g, " ")}
-                  </span>
-                  <span>{status.ai_decision.tool_calls} เครื่องมือ</span>
-                  <span>{status.ai_decision.turns} รอบ</span>
-                  <span>{status.ai_decision.duration_s}วิ</span>
+                <div className="flex items-center gap-3 text-[11px] font-normal text-muted-foreground">
+                  <span>{(status.ai_decision as Record<string, unknown>).timestamp ? new Date((status.ai_decision as Record<string, unknown>).timestamp as string).toLocaleString("th-TH", { timeZone: "Asia/Bangkok", hour: "2-digit", minute: "2-digit", day: "2-digit", month: "short" }) : "—"}</span>
+                  <span>{status.ai_decision.tool_calls} tools</span>
+                  <span>{status.ai_decision.turns} turns</span>
+                  <span>{status.ai_decision.duration_s}s</span>
                 </div>
               </CardTitle>
             </CardHeader>
@@ -707,31 +749,7 @@ export default function DashboardPage() {
                 <CardTitle className="text-sm font-bold">Equity Curve</CardTitle>
               </CardHeader>
               <CardContent className="h-48 p-3 pt-0 sm:p-6 sm:pt-0">
-                <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={analytics.equity_curve as {time: string; equity: number}[]}>
-                    <defs>
-                      <linearGradient id="eqGradient" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor="#9fe870" stopOpacity={0.3} />
-                        <stop offset="100%" stopColor="#9fe870" stopOpacity={0} />
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
-                    <XAxis dataKey="time" hide />
-                    <YAxis className="fill-muted-foreground" fontSize={10} />
-                    <Tooltip
-                      contentStyle={{
-                        backgroundColor: "var(--popover)",
-                        border: "1px solid var(--border)",
-                        borderRadius: "12px",
-                        color: "var(--foreground)",
-                        fontSize: "12px",
-                      }}
-                      formatter={(value) => [`$${Number(value).toFixed(2)}`, "Equity"]}
-                      labelFormatter={() => ""}
-                    />
-                    <Area type="monotone" dataKey="equity" stroke="#9fe870" strokeWidth={2} fill="url(#eqGradient)" />
-                  </AreaChart>
-                </ResponsiveContainer>
+                <LazyRecharts data={analytics.equity_curve as {time: string; equity: number}[]} />
               </CardContent>
             </Card>
           )}

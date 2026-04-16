@@ -8,6 +8,8 @@ import time
 import httpx
 from fastapi import APIRouter, Depends, Request
 from loguru import logger
+
+from app.auth import require_auth
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -132,7 +134,7 @@ async def _test_telegram() -> dict:
         return {"name": "Telegram", "status": "error", "latency_ms": 0, "detail": str(e)}
 
 
-@router.get("/status")
+@router.get("/status", dependencies=[Depends(require_auth)])
 async def get_integration_status(request: Request):
     """Test all integrations and return status."""
     import asyncio
@@ -140,17 +142,48 @@ async def get_integration_status(request: Request):
         _test_anthropic(),
         _test_mt5(),
         _test_telegram(),
+        _test_economic_calendar(),
+        _test_tradingview(),
     )
     return {"services": list(results)}
 
 
-@router.get("/test/{service}")
+async def _test_economic_calendar() -> dict:
+    """Test Forex Factory economic calendar API."""
+    start = time.time()
+    try:
+        async with httpx.AsyncClient(timeout=5) as client:
+            resp = await client.get("https://nfs.faireconomy.media/ff_calendar_thisweek.json")
+        latency = int((time.time() - start) * 1000)
+        if resp.status_code == 200:
+            events = resp.json()
+            count = len(events) if isinstance(events, list) else 0
+            return {"name": "Economic Calendar", "status": "connected", "latency_ms": latency, "detail": f"{count} events this week"}
+        return {"name": "Economic Calendar", "status": "error", "latency_ms": latency, "detail": f"HTTP {resp.status_code}"}
+    except Exception as e:
+        return {"name": "Economic Calendar", "status": "error", "latency_ms": 0, "detail": str(e)}
+
+
+async def _test_tradingview() -> dict:
+    """Check TradingView webhook configuration status."""
+    configured = bool(os.environ.get("TRADINGVIEW_WEBHOOK_KEY"))
+    return {
+        "name": "TradingView",
+        "status": "configured" if configured else "not_configured",
+        "latency_ms": 0,
+        "detail": "Webhook receiver — no outbound connection to test",
+    }
+
+
+@router.get("/test/{service}", dependencies=[Depends(require_auth)])
 async def test_service(service: str, request: Request):
     """Test a single service."""
     testers = {
         "anthropic": _test_anthropic,
         "mt5": _test_mt5,
         "telegram": _test_telegram,
+        "economic_calendar": _test_economic_calendar,
+        "tradingview": _test_tradingview,
     }
     tester = testers.get(service)
     if not tester:
@@ -171,7 +204,7 @@ _CONFIG_VAULT_KEYS: dict[str, dict[str, str]] = {
 }
 
 
-@router.put("/config")
+@router.put("/config", dependencies=[Depends(require_auth)])
 async def save_integration_config(req: SaveConfigRequest, db: AsyncSession = Depends(get_db)):
     """Save integration config to Secrets Vault (encrypted)."""
     vault_keys = _CONFIG_VAULT_KEYS.get(req.integration_id, {})
@@ -194,7 +227,7 @@ def _mask(value: str, show: int = 6) -> str:
     return value[:show] + "***" + value[-4:]
 
 
-@router.get("/config")
+@router.get("/config", dependencies=[Depends(require_auth)])
 async def get_integration_config(db: AsyncSession = Depends(get_db)):
     """Get all integration configs (masked, Vault-first then env fallback)."""
     # Read from Vault first, fallback to env
@@ -269,11 +302,35 @@ async def get_integration_config(db: AsyncSession = Depends(get_db)):
                     {"name": "send_notification", "description": "Send trade alert to Telegram channel"},
                 ],
             },
+            {
+                "id": "economic_calendar",
+                "name": "Economic Calendar",
+                "description": "Forex Factory economic events — auto-fetched hourly, reduces lot before high-impact events",
+                "status": "connected",
+                "config": {},
+                "tools": [
+                    {"name": "get_upcoming_events", "description": "Get upcoming high-impact USD events"},
+                    {"name": "is_near_event", "description": "Check if near a high-impact event"},
+                ],
+            },
+            {
+                "id": "tradingview",
+                "name": "TradingView",
+                "description": "Receive webhook alerts from TradingView Pine Script strategies",
+                "status": "configured" if os.environ.get("TRADINGVIEW_WEBHOOK_KEY") else "not_configured",
+                "config": {
+                    "Webhook URL": f"{os.environ.get('FRONTEND_URL', 'https://your-domain')}/api/webhooks/tradingview",
+                    "Webhook Key": _mask(os.environ.get("TRADINGVIEW_WEBHOOK_KEY", "")),
+                },
+                "tools": [
+                    {"name": "webhook_receiver", "description": "Receive BUY/SELL signals from TradingView alerts"},
+                ],
+            },
         ]
     }
 
 
-@router.get("/diag/claude-cli")
+@router.get("/diag/claude-cli", dependencies=[Depends(require_auth)])
 async def diagnose_claude_cli():
     """Diagnose Claude CLI availability and auth — helps debug SDK agent failures."""
     result: dict = {"checks": []}
@@ -331,12 +388,11 @@ async def diagnose_claude_cli():
             })
 
     # 6. Try a minimal SDK query
+    stderr_out: list[str] = []
+    text_out: list[str] = []
     try:
         from claude_agent_sdk import query, ClaudeAgentOptions, AssistantMessage
         from claude_agent_sdk.types import TextBlock
-
-        stderr_out: list[str] = []
-        text_out: list[str] = []
         async for msg in query(
             prompt="Reply with exactly: OK",
             options=ClaudeAgentOptions(

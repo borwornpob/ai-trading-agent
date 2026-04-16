@@ -3,16 +3,16 @@ Bot control API routes (multi-symbol).
 """
 
 from datetime import datetime, timedelta
-
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from loguru import logger
 from pydantic import BaseModel, Field
-
-from app.auth import require_auth
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.auth import require_auth
+from app.config import settings
 from app.db.models import BotEvent
 from app.db.session import get_db
 
@@ -34,11 +34,19 @@ def get_manager():
 
 
 def _get_engine(symbol: str | None = None):
-    """Get a specific engine or the first one as default."""
+    """Get a specific engine or the first one as default.
+
+    Resolves symbol aliases (e.g., GOLD → GOLDmicro if that's what's configured).
+    """
     mgr = get_manager()
     if symbol:
         engine = mgr.get_engine(symbol)
         if not engine:
+            # Try reverse alias: frontend sends "GOLD" but engine is "GOLDmicro"
+            from app.config import SYMBOL_ALIASES
+            for alias, canonical in SYMBOL_ALIASES.items():
+                if canonical == symbol and alias in mgr.engines:
+                    return mgr.engines[alias]
             raise HTTPException(status_code=404, detail=f"Symbol {symbol} not configured")
         return engine
     # Default: first engine (backward compat)
@@ -51,6 +59,13 @@ class StrategyUpdate(BaseModel):
     symbol: str | None = None
 
 
+class StrategyApply(BaseModel):
+    name: str
+    params: dict | None = None
+    symbol: str | None = None
+    reasoning: str = ""
+
+
 class SettingsUpdate(BaseModel):
     symbol: str | None = None
     use_ai_filter: bool | None = None
@@ -60,9 +75,10 @@ class SettingsUpdate(BaseModel):
     max_risk_per_trade: float | None = Field(None, ge=0.001, le=0.10)
     max_daily_loss: float | None = Field(None, ge=0.01, le=0.20)
     max_concurrent_trades: int | None = Field(None, ge=1, le=20)
-    max_lot: float | None = Field(None, ge=0.01, le=100.0)
-    fixed_lot: float | None = Field(None, ge=0.01, le=100.0)
+    max_lot: float | None = Field(None, ge=0.01, le=1.0)
+    fixed_lot: float | None = Field(None, ge=0.01, le=1.0)
     lot_mode: Literal["fixed", "auto"] | None = None
+    enable_auto_strategy_switch: bool | None = None
 
 
 @router.post("/start", dependencies=[Depends(require_auth)])
@@ -148,20 +164,74 @@ async def get_account():
 
     # Primary balance = first account (MT5) for backward compat
     primary = accounts[0] if accounts else {"balance": 0, "equity": 0, "margin": 0, "free_margin": 0, "profit": 0}
+
+    # Peak balance + drawdown from peak
+    peak_balance = 0.0
+    drawdown_pct = 0.0
+    try:
+        from app.risk.circuit_breaker import CircuitBreaker
+        balance = primary.get("balance", 0)
+        peak_balance = await CircuitBreaker.update_peak_balance(first_engine.redis, balance)
+        if peak_balance > 0:
+            drawdown_pct = (peak_balance - balance) / peak_balance
+    except Exception:
+        pass
+
     return {
         **primary,
         "accounts": accounts,
+        "peak_balance": round(peak_balance, 2),
+        "drawdown_pct": round(drawdown_pct, 4),
     }
 
 
 @router.put("/strategy", dependencies=[Depends(require_auth)])
 async def update_strategy(data: StrategyUpdate):
     engine = _get_engine(data.symbol)
+    if data.name == "ai_autonomous":
+        try:
+            await engine.redis.set("trading_mode", "ai_autonomous")
+        except Exception as e:
+            logger.debug(f"Redis trading_mode write failed: {e}")
+        settings.trading_mode = "ai_autonomous"
+        engine.strategy = None
+        return {"status": "updated", "strategy": "ai_autonomous", "symbol": engine.symbol}
+    # Switch back to strategy-first mode
+    try:
+        await engine.redis.set("trading_mode", "strategy")
+    except Exception as e:
+        logger.debug(f"Redis trading_mode write failed: {e}")
+    settings.trading_mode = "strategy"
     try:
         await engine.update_strategy(data.name, data.params)
         return {"status": "updated", "strategy": data.name, "symbol": engine.symbol}
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.put("/strategy-apply", dependencies=[Depends(require_auth)])
+async def apply_strategy_in_ai_mode(data: StrategyApply):
+    """Apply a strategy to the engine without changing trading mode.
+
+    Used by AI auto-strategy-switch to set a real strategy while staying in ai_autonomous mode.
+    """
+    engine = _get_engine(data.symbol)
+    try:
+        await engine.update_strategy(data.name, data.params)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    from app.db.models import BotEventType
+
+    try:
+        await engine._log_event(
+            BotEventType.STRATEGY_CHANGED,
+            f"[Auto-Switch] → {data.name} | {data.reasoning[:200]}",
+        )
+    except Exception as e:
+        logger.debug(f"Failed to log strategy switch event: {e}")
+
+    return {"status": "applied", "strategy": data.name, "symbol": engine.symbol}
 
 
 @router.put("/settings", dependencies=[Depends(require_auth)])
@@ -201,7 +271,32 @@ async def update_settings(data: SettingsUpdate):
                 max_lot=data.max_lot,
                 fixed_lot=resolved_fixed_lot,
             )
+
+    # Persist auto-strategy-switch flag to Redis (global, not per-engine)
+    if data.enable_auto_strategy_switch is not None:
+        try:
+            engine = _get_engine()
+            await engine.redis.set(
+                "enable_auto_strategy_switch",
+                "1" if data.enable_auto_strategy_switch else "0",
+            )
+            settings.enable_auto_strategy_switch = data.enable_auto_strategy_switch
+        except Exception as e:
+            logger.debug(f"Redis enable_auto_strategy_switch write failed: {e}")
+
     return {"status": "updated"}
+
+
+@router.post("/reset-peak", dependencies=[Depends(require_auth)])
+async def reset_peak_balance():
+    """Reset peak balance to current balance (fixes drawdown after account switch)."""
+    engine = _get_engine()
+    account = await engine.connector.get_account()
+    if not account.get("success"):
+        raise HTTPException(status_code=503, detail="Cannot get account info")
+    balance = account["data"]["balance"]
+    await engine.redis.set("circuit:peak_balance", str(balance))
+    return {"peak_balance": balance, "message": f"Peak reset to ${balance:.2f}"}
 
 
 @router.get("/events")
