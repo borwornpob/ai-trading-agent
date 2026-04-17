@@ -112,12 +112,6 @@ Trades **GOLD** · **OILCash** · **BTCUSD** · **USDJPY** through MetaTrader 5
 ### ⚙️ Settings
 <img src="docs/screenshots/settings.png" alt="Settings" width="900" />
 
-### 🐳 Runner Manager
-<img src="docs/screenshots/runners.png" alt="Runners" width="900" />
-
-### 🔐 Login
-<img src="docs/screenshots/login.png" alt="Login" width="450" />
-
 ---
 
 ## 🏗 Architecture
@@ -192,8 +186,8 @@ Trades **GOLD** · **OILCash** · **BTCUSD** · **USDJPY** through MetaTrader 5
 | `/integration` | Integration | Service connectivity status (DB, Redis, MT5, Vault, OAuth) |
 | `/notifications` | Notifications | Event history with filters |
 | `/settings` | Settings | Per-symbol risk, AI filter toggle, paper trade switch |
-| `/runners` | Runners | Docker sandbox runners + live logs + job queue + rollout banner |
 | `/login` | Login | Passkey or password authentication |
+| `/setup` | Setup | First-time passkey registration wizard |
 
 ---
 
@@ -274,7 +268,7 @@ gold-trading-bot/
 │   │   └── tools/              # 14 tool modules
 │   └── tests/                  # 444 tests (27 files)
 ├── frontend/
-│   ├── app/                    # Next.js App Router (15 pages)
+│   ├── app/                    # Next.js App Router (15 pages, no runners)
 │   ├── components/             # UI primitives + layout
 │   ├── lib/                    # API client + WebSocket
 │   └── public/agent-characters/ # Chibi agent portraits
