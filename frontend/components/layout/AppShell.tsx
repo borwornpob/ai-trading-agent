@@ -6,7 +6,8 @@ import { Sidebar, MobileHeader } from "@/components/layout/Sidebar";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { CommandPalette } from "@/components/ui/command-palette";
 import { RouteProgress } from "@/components/ui/route-progress";
-import api from "@/lib/api";
+import api, { getSymbols } from "@/lib/api";
+import { useBotStore } from "@/store/botStore";
 
 const AUTH_BYPASS_PAGES = ["/login"];
 
@@ -15,6 +16,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const isAuthPage = AUTH_BYPASS_PAGES.includes(pathname);
   const [authChecked, setAuthChecked] = useState(false);
+  const symbolsLoaded = useBotStore((s) => s.symbols.length > 0);
+  const setSymbols = useBotStore((s) => s.setSymbols);
 
   useEffect(() => {
     if (isAuthPage) {
@@ -41,6 +44,20 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           .catch(() => setAuthChecked(true));
       });
   }, [isAuthPage, router, pathname]);
+
+  // Prefetch symbols into global store once authed, so pages that read
+  // symbols from Zustand (insights, quant, etc.) work on direct load
+  // without requiring a dashboard visit first.
+  useEffect(() => {
+    if (!authChecked || isAuthPage || symbolsLoaded) return;
+    getSymbols()
+      .then((res) => {
+        if (res.data?.symbols) {
+          setSymbols(res.data.symbols);
+        }
+      })
+      .catch(() => {});
+  }, [authChecked, isAuthPage, symbolsLoaded, setSymbols]);
 
   if (isAuthPage) {
     return <>{children}</>;
