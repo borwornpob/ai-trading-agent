@@ -218,6 +218,16 @@ class BotScheduler:
             max_instances=1,
         )
 
+        # AI usage log cleanup: 03:00 UTC, keep last 90 days
+        self.scheduler.add_job(
+            self._ai_usage_cleanup_job,
+            "cron",
+            hour=3,
+            minute=0,
+            id="ai_usage_cleanup",
+            max_instances=1,
+        )
+
         # Economic calendar refresh every hour
         self.scheduler.add_job(
             self._refresh_economic_calendar,
@@ -515,6 +525,26 @@ class BotScheduler:
         logger.info("Daily reset triggered")
         tasks = [e.circuit_breaker.reset() for e in self._engines.values()]
         await asyncio.gather(*tasks, return_exceptions=True)
+
+    async def _ai_usage_cleanup_job(self):
+        """Delete AIUsageLog rows older than 90 days."""
+        try:
+            from datetime import timedelta
+
+            from sqlalchemy import delete
+
+            from app.db.models import AIUsageLog
+            from app.db.session import async_session
+
+            cutoff = datetime.now(UTC).replace(tzinfo=None) - timedelta(days=90)
+            async with async_session() as db:
+                result = await db.execute(
+                    delete(AIUsageLog).where(AIUsageLog.timestamp < cutoff)
+                )
+                await db.commit()
+                logger.info(f"AI usage cleanup: deleted {result.rowcount} rows older than 90d")
+        except Exception as e:
+            logger.error(f"AI usage cleanup failed: {e}")
 
     async def _daily_summary_job(self):
         """Daily trading summary at market close — sends Telegram report."""

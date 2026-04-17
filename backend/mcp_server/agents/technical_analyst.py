@@ -64,4 +64,5 @@ async def analyze(symbol: str, timeframe: str = "M15") -> dict:
         model=MODEL_SPECIALIST,
         max_turns=8,
         timeout=60,
+        agent_id="technical_analyst",
     )

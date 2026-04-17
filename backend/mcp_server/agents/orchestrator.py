@@ -166,6 +166,7 @@ async def run_multi_agent(
         max_turns=10,
         timeout=120,
         oauth_token=oauth_token,
+        agent_id="orchestrator",
     )
 
     total_duration = round(time.time() - start_time, 1)

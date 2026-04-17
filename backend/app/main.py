@@ -19,6 +19,7 @@ from app.api.routes import (
     admin,
     agent_prompts,
     ai_insights,
+    ai_usage,
     memory as memory_routes,
     analytics,
     backtest,
@@ -74,6 +75,25 @@ async def lifespan(app: FastAPI):
                 "ALTER TABLE trades ADD COLUMN IF NOT EXISTS post_trade_analysis JSON",
                 "ALTER TABLE trades ADD COLUMN IF NOT EXISTS is_archived BOOLEAN NOT NULL DEFAULT FALSE",
                 "CREATE INDEX IF NOT EXISTS ix_trades_is_archived ON trades (is_archived)",
+                """CREATE TABLE IF NOT EXISTS ai_usage_logs (
+                    id BIGSERIAL PRIMARY KEY,
+                    timestamp TIMESTAMP NOT NULL DEFAULT NOW(),
+                    agent_id VARCHAR(100) NOT NULL,
+                    model VARCHAR(100) NOT NULL,
+                    input_tokens INTEGER NOT NULL DEFAULT 0,
+                    output_tokens INTEGER NOT NULL DEFAULT 0,
+                    cache_read_tokens INTEGER NOT NULL DEFAULT 0,
+                    cache_write_tokens INTEGER NOT NULL DEFAULT 0,
+                    cost_usd_sdk DOUBLE PRECISION,
+                    cost_usd_calc DOUBLE PRECISION,
+                    duration_ms INTEGER NOT NULL DEFAULT 0,
+                    turns INTEGER NOT NULL DEFAULT 0,
+                    tool_calls_count INTEGER NOT NULL DEFAULT 0,
+                    success BOOLEAN NOT NULL DEFAULT TRUE,
+                    raw_usage JSON
+                )""",
+                "CREATE INDEX IF NOT EXISTS ix_ai_usage_logs_timestamp ON ai_usage_logs (timestamp)",
+                "CREATE INDEX IF NOT EXISTS ix_ai_usage_logs_agent_id ON ai_usage_logs (agent_id)",
             ]:
                 try:
                     await _tmp_session.execute(text(col_sql))
@@ -306,6 +326,7 @@ app.include_router(integration.router)
 app.include_router(webhooks.router)
 app.include_router(activity.router)
 app.include_router(agent_prompts.router)
+app.include_router(ai_usage.router)
 app.include_router(memory_routes.router)
 app.include_router(quant.router)
 app.include_router(ws_router)

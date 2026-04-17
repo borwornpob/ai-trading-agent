@@ -112,7 +112,7 @@ Respond in JSON format:
 
     try:
         result = await ai_client.complete_json_async(
-            system_prompt, user_prompt, max_tokens=1024
+            system_prompt, user_prompt, max_tokens=1024, agent_id="quant"
         )
 
         if result is None:

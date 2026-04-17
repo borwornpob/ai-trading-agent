@@ -102,4 +102,5 @@ async def reflect(symbol: str, timeframe: str = "M15") -> dict:
         model=MODEL_SPECIALIST,
         max_turns=10,
         timeout=90,
+        agent_id="reflector",
     )

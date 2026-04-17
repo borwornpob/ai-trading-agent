@@ -91,4 +91,5 @@ async def analyze(
         model=MODEL_SPECIALIST,
         max_turns=10,
         timeout=60,
+        agent_id="risk_analyst",
     )

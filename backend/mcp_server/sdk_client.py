@@ -56,11 +56,21 @@ async def sdk_complete(
     system_prompt: str,
     model: str = "claude-haiku-4-5-20251001",
     max_turns: int = 1,
+    agent_id: str = "unknown",
 ) -> str | None:
     """Simple prompt → text response. No tools. For sentiment analysis."""
+    from app.ai.usage_logger import log_ai_usage
+
+    start_time = time.time()
+    success = True
+    usage: dict | None = None
+    cost_sdk: float | None = None
+    duration_ms_sdk = 0
+    num_turns = 0
+    stderr_lines: list[str] = []
+
     try:
         text_parts: list[str] = []
-        stderr_lines: list[str] = []
 
         async for msg in query(
             prompt=prompt,
@@ -76,18 +86,47 @@ async def sdk_complete(
                 for block in msg.content:
                     if isinstance(block, TextBlock):
                         text_parts.append(block.text)
+            elif isinstance(msg, ResultMessage):
+                usage = getattr(msg, "usage", None)
+                cost_sdk = getattr(msg, "total_cost_usd", None)
+                duration_ms_sdk = getattr(msg, "duration_ms", 0) or 0
+                num_turns = getattr(msg, "num_turns", 0) or 0
+                if getattr(msg, "is_error", False):
+                    success = False
 
         result = "".join(text_parts)
         if result:
             logger.info(f"SDK complete: {len(result)} chars")
-            return result
+        else:
+            logger.warning(f"SDK complete: empty response. stderr: {''.join(stderr_lines[-5:])}")
+            success = False
 
-        logger.warning(f"SDK complete: empty response. stderr: {''.join(stderr_lines[-5:])}")
-        return None
+        await log_ai_usage(
+            agent_id=agent_id,
+            model=model,
+            usage=usage,
+            cost_usd_sdk=cost_sdk,
+            duration_ms=duration_ms_sdk or int((time.time() - start_time) * 1000),
+            turns=num_turns,
+            tool_calls_count=0,
+            success=success,
+        )
+
+        return result or None
     except Exception as e:
         logger.error(f"SDK complete error: {e}")
         if stderr_lines:
             logger.error(f"SDK stderr: {''.join(stderr_lines[-10:])}")
+        await log_ai_usage(
+            agent_id=agent_id,
+            model=model,
+            usage=usage,
+            cost_usd_sdk=cost_sdk,
+            duration_ms=int((time.time() - start_time) * 1000),
+            turns=num_turns,
+            tool_calls_count=0,
+            success=False,
+        )
         return None
 
 
@@ -98,17 +137,23 @@ async def sdk_agent_loop(
     allowed_tools: list[str] | None = None,
     max_turns: int = 15,
     timeout: int = 120,
+    agent_id: str = "unknown",
 ) -> dict[str, Any]:
     """Multi-turn agent loop with MCP trading tools.
 
     Returns dict matching run_agent_loop format:
         {response, tool_calls, turns, duration_s}
     """
+    from app.ai.usage_logger import log_ai_usage
+
     start_time = time.time()
     text_parts: list[str] = []
     tool_calls: list[dict] = []
     turns = 0
     cost_usd: float | None = None
+    usage: dict | None = None
+    duration_ms_sdk = 0
+    success = True
     stderr_lines: list[str] = []
 
     try:
@@ -129,6 +174,7 @@ async def sdk_agent_loop(
             # Check timeout
             if time.time() - start_time > timeout:
                 logger.warning(f"SDK agent timeout after {timeout}s")
+                success = False
                 break
 
             if isinstance(msg, AssistantMessage):
@@ -144,12 +190,27 @@ async def sdk_agent_loop(
                         logger.info(f"[Agent] Tool: {block.name}")
 
             elif isinstance(msg, ResultMessage):
-                cost_usd = getattr(msg, "cost_usd", None) or getattr(msg, "costUsd", None)
+                cost_usd = getattr(msg, "total_cost_usd", None)
+                usage = getattr(msg, "usage", None)
+                duration_ms_sdk = getattr(msg, "duration_ms", 0) or 0
+                if getattr(msg, "is_error", False):
+                    success = False
 
         response = "".join(text_parts)
         duration = round(time.time() - start_time, 1)
 
         logger.info(f"SDK agent: {turns} turns, {len(tool_calls)} tools, {duration}s")
+
+        await log_ai_usage(
+            agent_id=agent_id,
+            model=model,
+            usage=usage,
+            cost_usd_sdk=cost_usd,
+            duration_ms=duration_ms_sdk or int(duration * 1000),
+            turns=turns,
+            tool_calls_count=len(tool_calls),
+            success=success,
+        )
 
         return {
             "response": response or "No response",
@@ -169,6 +230,16 @@ async def sdk_agent_loop(
         if hasattr(e, "__cause__") and e.__cause__:
             logger.error(f"SDK cause: {e.__cause__}")
         logger.error(f"SDK error type: {type(e).__name__}, attrs: {vars(e) if hasattr(e, '__dict__') else 'N/A'}")
+        await log_ai_usage(
+            agent_id=agent_id,
+            model=model,
+            usage=usage,
+            cost_usd_sdk=cost_usd,
+            duration_ms=int((time.time() - start_time) * 1000),
+            turns=turns,
+            tool_calls_count=len(tool_calls),
+            success=False,
+        )
         return {
             "response": f"Agent error: {e}",
             "tool_calls": tool_calls,

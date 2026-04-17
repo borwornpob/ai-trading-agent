@@ -388,3 +388,23 @@ class AgentMemory(Base):
     content_hash: Mapped[str] = mapped_column(String(64), unique=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+
+
+class AIUsageLog(Base):
+    __tablename__ = "ai_usage_logs"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    timestamp: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), index=True)
+    agent_id: Mapped[str] = mapped_column(String(100), index=True)
+    model: Mapped[str] = mapped_column(String(100))
+    input_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    output_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    cache_read_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    cache_write_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    cost_usd_sdk: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    cost_usd_calc: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    duration_ms: Mapped[int] = mapped_column(Integer, default=0)
+    turns: Mapped[int] = mapped_column(Integer, default=0)
+    tool_calls_count: Mapped[int] = mapped_column(Integer, default=0)
+    success: Mapped[bool] = mapped_column(Boolean, default=True)
+    raw_usage: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)

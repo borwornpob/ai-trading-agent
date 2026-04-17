@@ -243,4 +243,14 @@ export const archiveTrades = (before: string) => api.post("/api/admin/trades/arc
 export const unarchiveTrades = (before: string) => api.post("/api/admin/trades/unarchive", null, { params: { before } });
 export const getArchiveCount = () => api.get("/api/admin/trades/archive-count");
 
+// AI usage monitoring
+export const getAIUsageSummary = (days: number) =>
+  api.get("/api/ai-usage/summary", { params: { days } });
+export const getAIUsageTimeseries = (days: number, granularity: "day" | "hour" = "day") =>
+  api.get("/api/ai-usage/timeseries", { params: { days, granularity } });
+export const getAIUsageBreakdown = (days: number) =>
+  api.get("/api/ai-usage/breakdown", { params: { days } });
+export const getAIUsageRecent = (limit = 50) =>
+  api.get("/api/ai-usage/recent", { params: { limit } });
+
 export default api;
