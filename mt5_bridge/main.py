@@ -4,6 +4,7 @@ Provides HTTP API to interact with MetaTrader 5.
 """
 
 import hmac
+import math
 import os
 from datetime import datetime, timedelta
 from enum import Enum
@@ -212,6 +213,19 @@ async def place_order(req: OrderRequest):
     if not symbol_info.visible:
         mt5.symbol_select(req.symbol, True)
 
+    # Clamp and round volume to symbol spec
+    vol = req.lot
+    vol_min = symbol_info.volume_min
+    vol_max = symbol_info.volume_max
+    vol_step = symbol_info.volume_step
+    if vol_step > 0:
+        vol = math.floor(vol / vol_step) * vol_step
+        vol = round(vol, 10)  # avoid float precision artifacts
+    vol = max(vol, vol_min)
+    vol = min(vol, vol_max)
+    if vol != req.lot:
+        logger.info(f"Volume adjusted: {req.lot} → {vol} (min={vol_min}, step={vol_step}, max={vol_max})")
+
     tick = mt5.symbol_info_tick(req.symbol)
     if tick is None:
         return mt5_response(False, error="Cannot get tick")
@@ -222,7 +236,7 @@ async def place_order(req: OrderRequest):
     request = {
         "action": mt5.TRADE_ACTION_DEAL,
         "symbol": req.symbol,
-        "volume": req.lot,
+        "volume": vol,
         "type": order_type,
         "price": price,
         "sl": req.sl,
@@ -240,7 +254,7 @@ async def place_order(req: OrderRequest):
     if result.retcode != mt5.TRADE_RETCODE_DONE:
         return mt5_response(False, error=f"Order rejected: {result.comment} (code: {result.retcode})")
 
-    logger.info(f"Order placed: {req.type} {req.lot} {req.symbol} @ {price} ticket={result.order}")
+    logger.info(f"Order placed: {req.type} {vol} {req.symbol} @ {price} ticket={result.order}")
     return mt5_response(True, data={
         "ticket": result.order,
         "price": price,
