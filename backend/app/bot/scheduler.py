@@ -238,6 +238,17 @@ class BotScheduler:
             coalesce=True,
         )
 
+        # Phase 4.1: broadcast aggregate status via Redis pub/sub every 15s.
+        # Replaces per-client dashboard polling — N clients share ONE in-memory read.
+        self.scheduler.add_job(
+            self._status_broadcast_job,
+            "interval",
+            seconds=15,
+            id="status_broadcast",
+            max_instances=1,
+            coalesce=True,
+        )
+
         self.scheduler.start()
         logger.info("Scheduler started")
 
@@ -602,6 +613,30 @@ class BotScheduler:
         for symbol, engine in self._engines.items():
             await self._ml_retrain_symbol(symbol, engine)
 
+    async def _status_broadcast_job(self):
+        """Publish aggregate bot status to Redis channel `status_update`.
+
+        Reduces DB/API load: a single in-memory read per 15s is broadcast to all
+        connected WebSocket clients instead of each client polling REST.
+        """
+        if self.manager is None:
+            return
+        try:
+            import json as _json
+            from app.config import SYMBOL_PROFILES as _PROFILES
+
+            status = self.manager.get_status()
+            # Redact any bulky fields for WS payload
+            for sym_status in status.get("symbols", {}).values():
+                sym_status.pop("strategy_params", None)
+            redis_client = getattr(self.manager, "redis", None)
+            if redis_client is None:
+                return
+            await redis_client.publish("status_update", _json.dumps(status, default=str))
+            _ = _PROFILES  # silence unused if import order shifts
+        except Exception as e:
+            logger.debug(f"status_broadcast failed: {e}")
+
     async def _health_check_job(self):
         if self._health_monitor:
             await self._health_monitor.check()
@@ -661,8 +696,8 @@ class BotScheduler:
             model_name = f"lightgbm_{symbol.lower()}_auto"
             model_path = f"models/{symbol.lower()}_signal.pkl"
 
+            # Phase 1: short session — read current accuracy + load training data, then release.
             async with async_session() as session:
-                # Get current model accuracy for this symbol
                 result = await session.execute(
                     select(MLModelLog)
                     .where(MLModelLog.is_active == True, MLModelLog.model_name == model_name)
@@ -674,7 +709,6 @@ class BotScheduler:
                     metrics = json.loads(current_log.metrics)
                     current_accuracy = metrics.get("accuracy", 0.0)
 
-                # Load last 90 days of data (sliding window)
                 from_date = (datetime.utcnow() - timedelta(days=90)).strftime("%Y-%m-%d")
                 collector = DataCollector(session)
                 df = await collector.load_from_db(symbol, engine.timeframe, from_date=from_date)
@@ -683,7 +717,6 @@ class BotScheduler:
                     logger.warning(f"ML retrain [{symbol}] skipped: insufficient data ({len(df)} bars)")
                     return
 
-                # Load macro data for feature enrichment
                 macro_df = None
                 try:
                     from app.data.macro import MacroDataService
@@ -692,7 +725,6 @@ class BotScheduler:
                 except Exception as e:
                     logger.warning(f"ML retrain [{symbol}]: macro data unavailable ({e}), proceeding without")
 
-                # Load sentiment data for feature enrichment
                 sentiment_df = None
                 try:
                     from app.ml.sentiment_features import get_sentiment_df_for_ml
@@ -700,49 +732,47 @@ class BotScheduler:
                 except Exception as e:
                     logger.debug(f"ML retrain [{symbol}]: sentiment data unavailable ({e})")
 
-                from app.ml.trainer import ModelTrainer
-                trainer = ModelTrainer()
-                X, y = trainer.prepare_dataset(df, macro_df=macro_df, sentiment_df=sentiment_df)
-                if len(X) < 200:
-                    logger.warning(f"ML retrain [{symbol}] skipped: insufficient labeled samples ({len(X)})")
-                    return
+            # Session released — heavy CPU training runs without holding a DB connection.
+            from app.ml.trainer import ModelTrainer
+            trainer = ModelTrainer()
+            X, y = trainer.prepare_dataset(df, macro_df=macro_df, sentiment_df=sentiment_df)
+            if len(X) < 200:
+                logger.warning(f"ML retrain [{symbol}] skipped: insufficient labeled samples ({len(X)})")
+                return
 
-                # 14-day holdout validation split (~85/15)
-                split_idx = int(len(X) * 0.85)
-                X_train, X_val = X.iloc[:split_idx], X.iloc[split_idx:]
-                y_train, y_val = y.iloc[:split_idx], y.iloc[split_idx:]
+            split_idx = int(len(X) * 0.85)
+            X_train, X_val = X.iloc[:split_idx], X.iloc[split_idx:]
+            y_train, y_val = y.iloc[:split_idx], y.iloc[split_idx:]
 
-                # Train on training portion using walk-forward
-                loop = asyncio.get_event_loop()
-                new_result = await loop.run_in_executor(None, trainer.train_walk_forward, X_train, y_train)
+            loop = asyncio.get_event_loop()
+            new_result = await loop.run_in_executor(None, trainer.train_walk_forward, X_train, y_train)
 
-                # Evaluate on holdout validation set
-                if len(X_val) > 20 and trainer.model is not None:
-                    available = [c for c in trainer.feature_columns if c in X_val.columns]
-                    val_preds = trainer.model.predict(X_val[available])
-                    import numpy as np
-                    val_pred_classes = np.array([p.argmax() for p in val_preds])
-                    signal_map = {0: -1, 1: 0, 2: 1}
-                    val_pred_signals = np.array([signal_map[c] for c in val_pred_classes])
-                    new_accuracy = float((val_pred_signals == y_val.values).mean())
-                else:
-                    new_accuracy = new_result.accuracy
+            if len(X_val) > 20 and trainer.model is not None:
+                available = [c for c in trainer.feature_columns if c in X_val.columns]
+                val_preds = trainer.model.predict(X_val[available])
+                import numpy as np
+                val_pred_classes = np.array([p.argmax() for p in val_preds])
+                signal_map = {0: -1, 1: 0, 2: 1}
+                val_pred_signals = np.array([signal_map[c] for c in val_pred_classes])
+                new_accuracy = float((val_pred_signals == y_val.values).mean())
+            else:
+                new_accuracy = new_result.accuracy
 
-                logger.info(f"ML retrain [{symbol}]: new_val={new_accuracy:.4f}, current={current_accuracy:.4f}")
+            logger.info(f"ML retrain [{symbol}]: new_val={new_accuracy:.4f}, current={current_accuracy:.4f}")
 
-                # Require 5% relative improvement
-                if new_accuracy < current_accuracy * 1.05:
-                    logger.info(f"ML retrain [{symbol}]: new model not better — keeping existing")
-                    msg = (f"ML Retrain [{symbol}]: {new_accuracy:.1%} did NOT beat "
-                           f"{current_accuracy:.1%} — keeping existing")
-                else:
-                    trainer.save_model(model_path)
+            if new_accuracy < current_accuracy * 1.05:
+                logger.info(f"ML retrain [{symbol}]: new model not better — keeping existing")
+                msg = (f"ML Retrain [{symbol}]: {new_accuracy:.1%} did NOT beat "
+                       f"{current_accuracy:.1%} — keeping existing")
+            else:
+                trainer.save_model(model_path)
 
-                    buf = io.BytesIO()
-                    joblib.dump({"model": trainer.model, "features": trainer.feature_columns}, buf)
-                    model_bytes = buf.getvalue()
+                buf = io.BytesIO()
+                joblib.dump({"model": trainer.model, "features": trainer.feature_columns}, buf)
+                model_bytes = buf.getvalue()
 
-                    # Deactivate old model for this symbol
+                # Phase 2: short session — persist new model log.
+                async with async_session() as session:
                     await session.execute(
                         update(MLModelLog)
                         .where(MLModelLog.is_active == True, MLModelLog.model_name == model_name)
@@ -764,20 +794,19 @@ class BotScheduler:
                     session.add(log)
                     await session.commit()
 
-                    # Reload model in strategy
-                    if hasattr(engine, 'strategy') and hasattr(engine.strategy, '_model_loaded'):
-                        engine.strategy._model_loaded = False
-                        await engine.strategy._ensure_model()
+                if hasattr(engine, 'strategy') and hasattr(engine.strategy, '_model_loaded'):
+                    engine.strategy._model_loaded = False
+                    await engine.strategy._ensure_model()
 
-                    msg = (f"ML Retrain [{symbol}]: accuracy {current_accuracy:.1%} → "
-                           f"{new_accuracy:.1%} — deployed!")
-                    logger.info(msg)
+                msg = (f"ML Retrain [{symbol}]: accuracy {current_accuracy:.1%} → "
+                       f"{new_accuracy:.1%} — deployed!")
+                logger.info(msg)
 
-                if hasattr(engine, 'notifier') and engine.notifier:
-                    try:
-                        await engine.notifier.send_message(msg)
-                    except Exception:
-                        pass
+            if hasattr(engine, 'notifier') and engine.notifier:
+                try:
+                    await engine.notifier.send_message(msg)
+                except Exception:
+                    pass
 
         except Exception as e:
             logger.error(f"ML retrain [{symbol}] error: {e}")

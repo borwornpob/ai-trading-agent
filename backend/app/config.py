@@ -255,10 +255,26 @@ class Settings(BaseSettings):
         return [o.strip() for o in self.cors_origins.split(",")]
 
     # DB connection pool
-    db_pool_size: int = 5
-    db_max_overflow: int = 10
-    db_pool_timeout: int = 30
+    db_pool_size: int = 20
+    db_max_overflow: int = 30
+    db_pool_timeout: int = 10
     db_pool_recycle: int = 1800
+
+    # DB observability thresholds (Phase 1 long-term scaling plan)
+    db_slow_query_threshold_ms: float = 500.0
+    db_request_warn_ms: float = 2000.0
+    db_request_error_ms: float = 10000.0
+    db_pool_alert_threshold: float = 0.7
+    db_pool_alert_sustained_seconds: float = 60.0
+
+    # Rate limit (Phase 4) — per (IP, path)
+    rate_limit_per_minute: int = 60
+    rate_limit_burst: int = 120
+
+    # PgBouncer compatibility (Phase 3) — set true when routing through PgBouncer in
+    # transaction mode. Disables asyncpg prepared statement cache, which PgBouncer
+    # transaction mode cannot share across connections.
+    db_pgbouncer_mode: bool = False
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 

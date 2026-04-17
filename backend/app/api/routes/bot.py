@@ -5,7 +5,9 @@ Bot control API routes (multi-symbol).
 from datetime import datetime, timedelta
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+
+from app.cache import cached
 from loguru import logger
 from pydantic import BaseModel, Field
 from sqlalchemy import desc, select
@@ -301,30 +303,43 @@ async def reset_peak_balance():
 
 @router.get("/events")
 async def get_events(
+    request: Request,
     days: int = Query(1, ge=1, le=30),
     event_type: str | None = None,
     limit: int = Query(100, ge=1, le=500),
     db: AsyncSession = Depends(get_db),
 ):
     """Get bot events — signals, blocks, trades, errors."""
-    cutoff = datetime.utcnow() - timedelta(days=days)
-    query = select(BotEvent).where(BotEvent.created_at >= cutoff)
-    if event_type:
-        query = query.where(BotEvent.event_type == event_type)
-    query = query.order_by(desc(BotEvent.created_at)).limit(limit)
 
-    result = await db.execute(query)
-    events = result.scalars().all()
+    async def _fetch():
+        cutoff = datetime.utcnow() - timedelta(days=days)
+        query = select(BotEvent).where(BotEvent.created_at >= cutoff)
+        if event_type:
+            query = query.where(BotEvent.event_type == event_type)
+        query = query.order_by(desc(BotEvent.created_at)).limit(limit)
 
-    return {
-        "events": [
-            {
-                "id": e.id,
-                "type": e.event_type.value,
-                "message": e.message,
-                "created_at": e.created_at.isoformat(),
-            }
-            for e in events
-        ],
-        "total": len(events),
-    }
+        result = await db.execute(query)
+        events = result.scalars().all()
+
+        return {
+            "events": [
+                {
+                    "id": e.id,
+                    "type": e.event_type.value,
+                    "message": e.message,
+                    "created_at": e.created_at.isoformat(),
+                }
+                for e in events
+            ],
+            "total": len(events),
+        }
+
+    redis_client = getattr(request.app.state, "redis", None)
+    if redis_client is None:
+        return await _fetch()
+    return await cached(
+        redis_client,
+        f"cache:bot_events:{days}:{event_type or ''}:{limit}",
+        10,
+        _fetch,
+    )

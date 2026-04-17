@@ -4,7 +4,9 @@ Trade history API routes.
 
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
+
+from app.cache import cached
 from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -141,6 +143,7 @@ async def get_trades(
 
 @router.get("/daily-pnl")
 async def get_daily_pnl(
+    request: Request,
     symbol: str | None = None,
     db: AsyncSession = Depends(get_db),
 ):
@@ -151,6 +154,16 @@ async def get_daily_pnl(
     if symbol:
         symbol = resolve_broker_symbol(symbol)
 
+    async def _fetch():
+        return await _fetch_daily_pnl(symbol, db, _manager)
+
+    redis_client = getattr(request.app.state, "redis", None)
+    if redis_client is None:
+        return await _fetch()
+    return await cached(redis_client, f"cache:daily_pnl:{symbol or 'all'}", 15, _fetch)
+
+
+async def _fetch_daily_pnl(symbol, db, _manager):
     today = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
 
     # 1. Try MT5 live history first (catches all trades — bot + manual)

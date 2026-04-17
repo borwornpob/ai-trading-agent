@@ -334,7 +334,29 @@ class BotEngine:
             # 3. Get AI sentiment and check trade permissions
             ai_sentiment = await self._get_ai_sentiment()
 
-            if not await self._check_trade_permission(signal, signal_label, balance, ai_sentiment):
+            # Pre-fetch recent_wr in isolated session so _check_trade_permission does
+            # NOT hold the shared db_session across broker-API awaits in _size_and_place_order.
+            recent_wr_pref: float | None = None
+            try:
+                from app.constants import CONFIDENCE_RECENT_TRADES_WINDOW
+                from app.db.session import async_session
+                from sqlalchemy import select as _sel_wr
+                stmt_wr = (_sel_wr(Trade).where(
+                    Trade.symbol == self.symbol,
+                    Trade.profit.isnot(None),
+                    Trade.is_archived.is_(False),
+                ).order_by(Trade.id.desc()).limit(CONFIDENCE_RECENT_TRADES_WINDOW))
+                async with async_session() as _db_wr:
+                    _res_wr = await _db_wr.execute(stmt_wr)
+                    _recent = _res_wr.scalars().all()
+                if len(_recent) >= 10:
+                    recent_wr_pref = sum(1 for t in _recent if t.profit > 0) / len(_recent)
+            except Exception:
+                recent_wr_pref = None
+
+            if not await self._check_trade_permission(
+                signal, signal_label, balance, ai_sentiment, recent_wr_prefetched=recent_wr_pref,
+            ):
                 return
 
             # 3b. Confirmation gate — require confirmations before trading
@@ -525,6 +547,7 @@ class BotEngine:
 
     async def _check_trade_permission(
         self, signal: int, signal_label: str, balance: float, ai_sentiment: dict | None,
+        recent_wr_prefetched: float | None = None,
     ) -> bool:
         """Check risk limits, portfolio exposure, and correlation conflicts. Returns True if allowed."""
         import asyncio as _asyncio
@@ -550,16 +573,19 @@ class BotEngine:
                     session_boost = prof.get("confidence_boost", 0.0)
                     break
 
-            # Recent win rate
-            recent_wr = None
-            from app.constants import CONFIDENCE_RECENT_TRADES_WINDOW
-            from sqlalchemy import select as _sel2
-            stmt = (_sel2(Trade).where(Trade.symbol == self.symbol, Trade.profit.isnot(None), Trade.is_archived.is_(False))
-                    .order_by(Trade.id.desc()).limit(CONFIDENCE_RECENT_TRADES_WINDOW))
-            result = await self.db.execute(stmt)
-            recent = result.scalars().all()
-            if len(recent) >= 10:
-                recent_wr = sum(1 for t in recent if t.profit > 0) / len(recent)
+            # Recent win rate — prefer pre-fetched value (caller used isolated session)
+            recent_wr = recent_wr_prefetched
+            if recent_wr is None:
+                from app.constants import CONFIDENCE_RECENT_TRADES_WINDOW
+                from app.db.session import async_session
+                from sqlalchemy import select as _sel2
+                stmt = (_sel2(Trade).where(Trade.symbol == self.symbol, Trade.profit.isnot(None), Trade.is_archived.is_(False))
+                        .order_by(Trade.id.desc()).limit(CONFIDENCE_RECENT_TRADES_WINDOW))
+                async with async_session() as _db:
+                    result = await _db.execute(stmt)
+                    recent = result.scalars().all()
+                if len(recent) >= 10:
+                    recent_wr = sum(1 for t in recent if t.profit > 0) / len(recent)
 
             # Drawdown
             dd_pct = 0.0
@@ -865,11 +891,20 @@ class BotEngine:
         if not self.sentiment_analyzer:
             return
         try:
-            # Build AI context (historical patterns, price action, trade history)
+            # Build AI context in isolated short-lived session so the shared engine
+            # db_session is NOT held across the Claude API call that follows.
+            # Safe: engine is single-task per symbol → no concurrent swap.
+            from app.db.session import async_session
             try:
-                self._ai_context = await self.context_builder.build_full_context(
-                    self.symbol, self.timeframe
-                )
+                async with async_session() as ctx_db:
+                    prev_db = self.context_builder.db
+                    self.context_builder.db = ctx_db
+                    try:
+                        self._ai_context = await self.context_builder.build_full_context(
+                            self.symbol, self.timeframe
+                        )
+                    finally:
+                        self.context_builder.db = prev_db
             except Exception as e:
                 logger.warning(f"Context building failed, using basic sentiment: {e}")
                 self._ai_context = None

@@ -4,13 +4,14 @@ AI Insights API routes — sentiment and optimization.
 
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from app.auth import require_auth
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.routes.bot import _get_engine, get_manager
+from app.cache import cached
 from app.db.models import AIOptimizationLog, NewsSentiment
 from app.db.session import get_db
 
@@ -28,31 +29,37 @@ async def get_latest_sentiment(symbol: str | None = Query(None)):
 
 @router.get("/sentiment/history")
 async def get_sentiment_history(
+    request: Request,
     days: int = Query(7, ge=1, le=30),
     db: AsyncSession = Depends(get_db),
 ):
-    cutoff = datetime.utcnow() - timedelta(days=days)
-    result = await db.execute(
-        select(NewsSentiment)
-        .where(NewsSentiment.created_at >= cutoff)
-        .order_by(desc(NewsSentiment.created_at))
-        .limit(500)
-    )
-    records = result.scalars().all()
+    async def _fetch():
+        cutoff = datetime.utcnow() - timedelta(days=days)
+        result = await db.execute(
+            select(NewsSentiment)
+            .where(NewsSentiment.created_at >= cutoff)
+            .order_by(desc(NewsSentiment.created_at))
+            .limit(500)
+        )
+        records = result.scalars().all()
+        return {
+            "history": [
+                {
+                    "headline": r.headline,
+                    "source": r.source,
+                    "sentiment_label": r.sentiment_label,
+                    "sentiment_score": r.sentiment_score,
+                    "confidence": r.confidence,
+                    "created_at": r.created_at.isoformat(),
+                }
+                for r in records
+            ]
+        }
 
-    return {
-        "history": [
-            {
-                "headline": r.headline,
-                "source": r.source,
-                "sentiment_label": r.sentiment_label,
-                "sentiment_score": r.sentiment_score,
-                "confidence": r.confidence,
-                "created_at": r.created_at.isoformat(),
-            }
-            for r in records
-        ]
-    }
+    redis_client = getattr(request.app.state, "redis", None)
+    if redis_client is None:
+        return await _fetch()
+    return await cached(redis_client, f"cache:sentiment_history:{days}", 30, _fetch)
 
 
 @router.get("/optimization/latest")

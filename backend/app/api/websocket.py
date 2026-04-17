@@ -11,7 +11,13 @@ from loguru import logger
 
 router = APIRouter()
 
-CHANNELS = ["price_update", "position_update", "bot_event", "sentiment_update"]
+CHANNELS = [
+    "price_update",
+    "position_update",
+    "bot_event",
+    "sentiment_update",
+    "status_update",
+]
 
 
 @router.websocket("/ws")

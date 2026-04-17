@@ -24,6 +24,7 @@ import {
   Activity,
   Shield,
   Zap,
+  Database,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
@@ -63,6 +64,7 @@ const navGroups: NavGroup[] = [
     items: [
       { href: "/agent-prompts", label: "Agent Prompts", icon: Settings2 },
       { href: "/integration", label: "Integration", icon: Plug },
+      { href: "/db-health", label: "DB Health", icon: Database },
       { href: "/notifications", label: "Notifications", icon: Bell },
       { href: "/settings", label: "Settings", icon: Settings },
     ],

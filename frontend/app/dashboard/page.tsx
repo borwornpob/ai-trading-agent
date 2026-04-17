@@ -168,7 +168,11 @@ export default function DashboardPage() {
 
   useEffect(() => {
     fetchData();
-    const interval = setInterval(fetchData, 30000);
+    // Phase 4.1: WS pushes status every 15s → REST poll is now fallback only.
+    // Raise interval to 5min so REST is a safety net, not the primary data source.
+    const interval = setInterval(() => {
+      if (document.visibilityState === "visible") fetchData();
+    }, 300000);
     // Re-fetch immediately when tab becomes visible (after idle/sleep)
     const onVisible = () => {
       if (document.visibilityState === "visible") fetchData();
@@ -181,6 +185,20 @@ export default function DashboardPage() {
   }, [fetchData]);
 
   useEffect(() => {
+    // Phase 4.1: server pushes aggregate status every 15s via Redis pub/sub.
+    // Replaces per-client REST polling → 1 in-memory read broadcast to N clients.
+    subscribe("status_update", (data) => {
+      const d = data as { symbols?: Record<string, Parameters<typeof setStatus>[0]>; active_count?: number; total_count?: number };
+      if (d?.symbols) {
+        setSymbolStatuses(d.symbols as Parameters<typeof setSymbolStatuses>[0]);
+        const active = d.symbols[activeSymbolRef.current];
+        if (active) setStatus(active);
+        for (const [sym, st] of Object.entries(d.symbols)) {
+          const s = st as Record<string, unknown>;
+          if (s.sentiment) setSentiment({ ...(s.sentiment as Record<string, unknown>), symbol: sym } as Parameters<typeof setSentiment>[0]);
+        }
+      }
+    });
     subscribe("price_update", (data) => { if (data) setTick(data as NonNullable<typeof tick>); });
     subscribe("position_update", (data) => {
       const d = data as { symbol?: string; positions: typeof positions };

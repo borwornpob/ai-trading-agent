@@ -5,10 +5,11 @@ Analytics API routes — advanced performance metrics.
 import math
 from datetime import datetime, timedelta
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.cache import cached
 from app.db.models import Trade
 from app.db.session import get_db
 
@@ -17,6 +18,7 @@ router = APIRouter(prefix="/api/analytics", tags=["analytics"])
 
 @router.get("/performance")
 async def get_performance_analytics(
+    request: Request,
     symbol: str | None = None,
     days: int = Query(30, ge=1, le=365),
     db: AsyncSession = Depends(get_db),
@@ -28,6 +30,22 @@ async def get_performance_analytics(
     if symbol:
         from app.config import resolve_broker_symbol
         symbol = resolve_broker_symbol(symbol)
+
+    async def _compute():
+        return await _compute_performance(symbol, days, db, _manager, SimpleNamespace)
+
+    redis_client = getattr(request.app.state, "redis", None)
+    if redis_client is None:
+        return await _compute()
+    return await cached(
+        redis_client,
+        f"cache:analytics_perf:{symbol or 'all'}:{days}",
+        60,
+        _compute,
+    )
+
+
+async def _compute_performance(symbol, days, db, _manager, SimpleNamespace):
 
     cutoff = datetime.utcnow() - timedelta(days=days)
     query = select(Trade).where(

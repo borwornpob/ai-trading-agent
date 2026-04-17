@@ -50,7 +50,15 @@ from app.config import settings
 from app.data.collector import HistoricalDataCollector
 from app.data.macro import MacroDataService
 from app.data.macro_events import MacroEventCalendar
-from app.db.session import async_session
+from app.db.observability import (
+    PoolPressureMonitor,
+    SessionLifetimeMiddleware,
+    get_pool_stats,
+    install_slow_query_logger,
+    long_hold_tracker,
+    slow_query_tracker,
+)
+from app.db.session import async_session, engine as db_engine
 from app.health import check_health
 from app.middleware.auth import AuthMiddleware
 from app.mt5.connector import MT5BridgeConnector
@@ -63,6 +71,9 @@ async def lifespan(app: FastAPI):
     configure_logging()
 
     logger.info("Starting Trading Bot (multi-symbol)...")
+
+    # Phase 1 observability: slow query logger — attach once, survives entire app lifetime
+    install_slow_query_logger(db_engine, threshold_ms=settings.db_slow_query_threshold_ms)
 
     # Auto-add missing columns/tables (safe for production — IF NOT EXISTS guards)
     # Each statement runs in its own session to isolate transaction abort on error.
@@ -199,10 +210,26 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.debug(f"Redis trading_mode restore failed: {e}")
 
+    # Phase 1 observability: pool pressure monitor — Telegram alert on sustained high utilization
+    pool_monitor = PoolPressureMonitor(
+        db_engine,
+        notifier=notifier,
+        high_threshold=settings.db_pool_alert_threshold,
+        sustained_seconds=settings.db_pool_alert_sustained_seconds,
+    )
+    app.state.pool_monitor = pool_monitor
+
     # Start scheduler
     scheduler = BotScheduler(manager)
     scheduler.set_health_monitor(health_monitor)
     scheduler.start()
+    scheduler.scheduler.add_job(
+        pool_monitor.tick,
+        "interval",
+        seconds=10,
+        id="db_pool_pressure",
+        replace_existing=True,
+    )
     for engine in manager.engines.values():
         engine._scheduler = scheduler
     app.state.scheduler = scheduler
@@ -289,6 +316,22 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 
 app.add_middleware(SecurityHeadersMiddleware)
 
+# Phase 1 observability: warn on long-held DB connections per request
+app.add_middleware(
+    SessionLifetimeMiddleware,
+    async_engine=db_engine,
+    warn_threshold_ms=settings.db_request_warn_ms,
+    error_threshold_ms=settings.db_request_error_ms,
+)
+
+# Phase 4 rate limit — Redis token bucket per (IP, path). Fails open if Redis unavailable.
+from app.middleware.rate_limit import RateLimitMiddleware
+app.add_middleware(
+    RateLimitMiddleware,
+    sustained_per_minute=settings.rate_limit_per_minute,
+    burst_capacity=settings.rate_limit_burst,
+)
+
 # Auth middleware disabled — using Bearer token auth (legacy password mode)
 # app.add_middleware(AuthMiddleware)
 
@@ -342,3 +385,23 @@ async def health():
         app.state.redis,
         app.state.ai_client,
     )
+
+
+@app.get("/health/pool")
+async def health_pool():
+    """Live DB pool stats + recent slow queries + long-hold requests."""
+    stats = get_pool_stats(db_engine)
+    monitor = getattr(app.state, "pool_monitor", None)
+    return {
+        "pool": stats,
+        "samples": monitor.recent(60) if monitor else [],
+        "slow_queries": slow_query_tracker.top(10),
+        "long_holds": long_hold_tracker.top(10),
+        "thresholds": {
+            "alert_utilization": settings.db_pool_alert_threshold,
+            "alert_sustained_seconds": settings.db_pool_alert_sustained_seconds,
+            "slow_query_ms": settings.db_slow_query_threshold_ms,
+            "request_warn_ms": settings.db_request_warn_ms,
+            "request_error_ms": settings.db_request_error_ms,
+        },
+    }
