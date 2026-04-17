@@ -538,6 +538,7 @@ class BotScheduler:
                     Trade.symbol == symbol,
                     Trade.close_time >= today_start,
                     Trade.profit.isnot(None),
+                    Trade.is_archived.is_(False),
                 ))
                 result = await engine.db.execute(stmt)
                 trades = result.scalars().all()

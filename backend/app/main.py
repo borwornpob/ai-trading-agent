@@ -16,6 +16,7 @@ from app.ai.news_sentiment import NewsSentimentAnalyzer
 from app.ai.strategy_optimizer import StrategyOptimizer
 from app.api.routes import (
     activity,
+    admin,
     agent_prompts,
     ai_insights,
     memory as memory_routes,
@@ -280,6 +281,7 @@ app.add_middleware(
 )
 
 # Routes
+app.include_router(admin.router)
 app.include_router(auth_router)
 app.include_router(webauthn_router)
 app.include_router(bot.router)

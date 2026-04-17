@@ -238,4 +238,9 @@ export const getHealth = () => api.get("/health");
 export const getIntegrationStatus = () => api.get("/api/integration/status");
 export const testIntegration = (service: string) => api.get(`/api/integration/test/${service}`);
 
+// Admin
+export const archiveTrades = (before: string) => api.post("/api/admin/trades/archive", null, { params: { before } });
+export const unarchiveTrades = (before: string) => api.post("/api/admin/trades/unarchive", null, { params: { before } });
+export const getArchiveCount = () => api.get("/api/admin/trades/archive-count");
+
 export default api;

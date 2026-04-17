@@ -64,7 +64,7 @@ class StrategyOptimizer:
     async def build_performance_summary(self, days: int = 7) -> str:
         cutoff = datetime.utcnow() - timedelta(days=days)
         result = await self.db.execute(
-            select(Trade).where(Trade.open_time >= cutoff).order_by(Trade.open_time)
+            select(Trade).where(Trade.open_time >= cutoff, Trade.is_archived.is_(False)).order_by(Trade.open_time)
         )
         trades = result.scalars().all()
 

@@ -30,6 +30,7 @@ async def get_performance_analytics(
         Trade.open_time >= cutoff,
         Trade.profit.isnot(None),
         Trade.close_time.isnot(None),
+        Trade.is_archived.is_(False),
     )
     if symbol:
         query = query.where(Trade.symbol == symbol)
@@ -202,6 +203,7 @@ async def get_slippage_analysis(
         Trade.open_time >= cutoff,
         Trade.expected_price.isnot(None),
         Trade.open_price.isnot(None),
+        Trade.is_archived.is_(False),
     )
     if symbol:
         query = query.where(Trade.symbol == symbol)

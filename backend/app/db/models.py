@@ -130,6 +130,7 @@ class Trade(Base):
     trade_reason: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     pre_trade_snapshot: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
     post_trade_analysis: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    is_archived: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", index=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now()
     )

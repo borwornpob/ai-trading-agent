@@ -33,7 +33,7 @@ async def get_trades(
     cutoff = datetime.utcnow() - timedelta(days=days)
 
     # 1. Pull from DB (with fallback if new columns not yet migrated)
-    query = select(Trade).where(Trade.open_time >= cutoff)
+    query = select(Trade).where(Trade.open_time >= cutoff, Trade.is_archived.is_(False))
     if strategy:
         query = query.where(Trade.strategy_name == strategy)
     if trade_type:
@@ -177,6 +177,7 @@ async def get_daily_pnl(
     db_query = select(Trade).where(
         Trade.close_time >= today,
         Trade.profit.isnot(None),
+        Trade.is_archived.is_(False),
     )
     if symbol:
         db_query = db_query.where(Trade.symbol == symbol)
@@ -215,7 +216,7 @@ async def get_performance(
         symbol = resolve_broker_symbol(symbol)
 
     cutoff = datetime.utcnow() - timedelta(days=days)
-    query = select(Trade).where(Trade.open_time >= cutoff, Trade.profit.isnot(None))
+    query = select(Trade).where(Trade.open_time >= cutoff, Trade.profit.isnot(None), Trade.is_archived.is_(False))
     if symbol:
         query = query.where(Trade.symbol == symbol)
     result = await db.execute(query)

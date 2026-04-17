@@ -554,7 +554,7 @@ class BotEngine:
             recent_wr = None
             from app.constants import CONFIDENCE_RECENT_TRADES_WINDOW
             from sqlalchemy import select as _sel2
-            stmt = (_sel2(Trade).where(Trade.symbol == self.symbol, Trade.profit.isnot(None))
+            stmt = (_sel2(Trade).where(Trade.symbol == self.symbol, Trade.profit.isnot(None), Trade.is_archived.is_(False))
                     .order_by(Trade.id.desc()).limit(CONFIDENCE_RECENT_TRADES_WINDOW))
             result = await self.db.execute(stmt)
             recent = result.scalars().all()
@@ -811,7 +811,7 @@ class BotEngine:
             from sqlalchemy import select as _select
             stmt = (
                 _select(Trade)
-                .where(Trade.symbol == self.symbol, Trade.profit.isnot(None))
+                .where(Trade.symbol == self.symbol, Trade.profit.isnot(None), Trade.is_archived.is_(False))
                 .order_by(Trade.id.desc())
                 .limit(STREAK_RECENT_TRADES)
             )
@@ -1296,7 +1296,7 @@ class BotEngine:
             from sqlalchemy import select
             stmt = (
                 select(Trade)
-                .where(Trade.symbol == self.symbol, Trade.profit.isnot(None))
+                .where(Trade.symbol == self.symbol, Trade.profit.isnot(None), Trade.is_archived.is_(False))
                 .order_by(Trade.id.desc())
                 .limit(KELLY_RECENT_TRADES)
             )

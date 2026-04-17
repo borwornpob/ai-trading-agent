@@ -9,12 +9,12 @@ import { Skeleton } from "@/components/ui/skeleton";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
-import { Download, BarChart3, TrendingUp, DollarSign, Target, History } from "lucide-react";
+import { Download, BarChart3, TrendingUp, DollarSign, Target, History, Archive } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { PageInstructions } from "@/components/layout/PageInstructions";
 import { StatCard } from "@/components/ui/stat-card";
 import SentimentBadge from "@/components/ai/SentimentBadge";
-import { getTradeHistory, getPerformance, getSymbols } from "@/lib/api";
+import { getTradeHistory, getPerformance, getSymbols, archiveTrades } from "@/lib/api";
 import { showSuccess, showError } from "@/lib/toast";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ErrorBoundary } from "@/components/ui/error-boundary";
@@ -40,6 +40,7 @@ export default function HistoryPage() {
   const [symbolFilter, setSymbolFilter] = useState<string>("all");
   const [symbols, setSymbols] = useState<{symbol: string; display_name: string}[]>([]);
   const [loading, setLoading] = useState(true);
+  const [archiving, setArchiving] = useState(false);
 
   useEffect(() => {
     getSymbols().then((res) => {
@@ -62,6 +63,18 @@ export default function HistoryPage() {
   }, [days, symbolFilter]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
+
+  const handleArchiveDemoTrades = async () => {
+    const date = prompt("Archive trades before date (YYYY-MM-DD):", new Date().toISOString().slice(0, 10));
+    if (!date) return;
+    if (!confirm(`Archive all trades before ${date}? They will be excluded from stats (can be undone).`)) return;
+    setArchiving(true);
+    try {
+      const res = await archiveTrades(date);
+      showSuccess("Archived", `${res.data.archived} demo trades archived`);
+      await fetchData();
+    } catch { showError("Archive failed"); } finally { setArchiving(false); }
+  };
 
   const handleExportCSV = () => {
     const headers = "Ticket,Symbol,Type,Lot,Open Price,Close Price,SL,TP,Profit,Strategy,Sentiment\n";
@@ -100,6 +113,17 @@ export default function HistoryPage() {
             </Button>
           ))}
         </div>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={handleArchiveDemoTrades}
+          disabled={archiving}
+          className="rounded-xl text-amber-500 border-amber-500/30 hover:bg-amber-500/10"
+          title="Archive demo trades — excluded from stats"
+        >
+          <Archive className="size-3.5 mr-1.5" />
+          {archiving ? "Archiving..." : "Archive Demo"}
+        </Button>
       </PageHeader>
 
       <PageInstructions

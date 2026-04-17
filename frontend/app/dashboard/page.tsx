@@ -517,63 +517,121 @@ export default function DashboardPage() {
           </CardContent>
         </Card>
 
-        {viewMode === "multi" ? (
-          <Card className="order-2 lg:order-1 lg:col-span-3">
+        <div className="order-2 lg:order-1 lg:col-span-3 flex flex-col gap-4 xl:gap-6">
+          {viewMode === "multi" ? (
+            <Card>
+              <CardHeader className="p-3 sm:p-6">
+                <CardTitle className="text-sm font-bold flex items-center justify-between">
+                  <span>All Symbols</span>
+                  <TimeframeSelector value={chartTimeframe} onChange={setChartTimeframe} />
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="p-3 pt-0 sm:p-6 sm:pt-0">
+                <div className="grid grid-cols-2 gap-2">
+                  {symbols.map((s) => (
+                    <div
+                      key={s.symbol}
+                      className="border border-border rounded-xl p-2 cursor-pointer hover:border-primary/50 glow-hover transition-colors"
+                      onClick={() => { setActiveSymbol(s.symbol); setViewMode("single"); }}
+                    >
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-xs font-bold">{s.display_name}</span>
+                        <span className="text-xs font-mono text-muted-foreground">
+                          {ticks[s.symbol]?.bid.toFixed(s.price_decimals) || "---"}
+                        </span>
+                      </div>
+                      <div className="h-40">
+                        <PriceChart
+                          symbol={s.symbol}
+                          timeframe={chartTimeframe}
+                          tick={ticks[s.symbol] || null}
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          ) : (
+            <Card>
+              <CardHeader className="p-3 sm:p-6">
+                <CardTitle className="text-sm font-bold space-y-2 sm:space-y-0">
+                  <div className="flex items-center justify-between flex-wrap gap-2">
+                    <div className="flex items-center gap-2 sm:gap-3">
+                      <span>{activeSymbolInfo?.display_name || activeSymbol}</span>
+                      <SentimentBadge label={sentiment?.label || "neutral"} score={sentiment?.score || 0} size="sm" />
+                    </div>
+                    <TimeframeSelector value={chartTimeframe} onChange={setChartTimeframe} />
+                  </div>
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="h-56 sm:h-72 xl:h-80 p-3 pt-0 sm:p-6 sm:pt-0">
+                <PriceChart
+                  key={`${activeSymbol}-${chartTimeframe}`}
+                  symbol={activeSymbol}
+                  timeframe={chartTimeframe}
+                  tick={activeTick}
+                />
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Open Positions — below chart */}
+          <Card>
             <CardHeader className="p-3 sm:p-6">
-              <CardTitle className="text-sm font-bold flex items-center justify-between">
-                <span>All Symbols</span>
-                <TimeframeSelector value={chartTimeframe} onChange={setChartTimeframe} />
-              </CardTitle>
+              <CardTitle className="text-sm font-bold">Open Positions</CardTitle>
             </CardHeader>
             <CardContent className="p-3 pt-0 sm:p-6 sm:pt-0">
-              <div className="grid grid-cols-2 gap-2">
-                {symbols.map((s) => (
-                  <div
-                    key={s.symbol}
-                    className="border border-border rounded-xl p-2 cursor-pointer hover:border-primary/50 glow-hover transition-colors"
-                    onClick={() => { setActiveSymbol(s.symbol); setViewMode("single"); }}
-                  >
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="text-xs font-bold">{s.display_name}</span>
-                      <span className="text-xs font-mono text-muted-foreground">
-                        {ticks[s.symbol]?.bid.toFixed(s.price_decimals) || "---"}
-                      </span>
-                    </div>
-                    <div className="h-40">
-                      <PriceChart
-                        symbol={s.symbol}
-                        timeframe={chartTimeframe}
-                        tick={ticks[s.symbol] || null}
-                      />
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-        ) : (
-          <Card className="order-2 lg:order-1 lg:col-span-3">
-            <CardHeader className="p-3 sm:p-6">
-              <CardTitle className="text-sm font-bold space-y-2 sm:space-y-0">
-                <div className="flex items-center justify-between flex-wrap gap-2">
-                  <div className="flex items-center gap-2 sm:gap-3">
-                    <span>{activeSymbolInfo?.display_name || activeSymbol}</span>
-                    <SentimentBadge label={sentiment?.label || "neutral"} score={sentiment?.score || 0} size="sm" />
-                  </div>
-                  <TimeframeSelector value={chartTimeframe} onChange={setChartTimeframe} />
+              {positions.length > 0 ? (
+                <div className="overflow-x-auto -mx-3 px-3 sm:mx-0 sm:px-0">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Symbol</TableHead>
+                        <TableHead>Type</TableHead>
+                        <TableHead className="text-right">Lots</TableHead>
+                        <TableHead className="text-right">Entry</TableHead>
+                        <TableHead className="text-right">SL</TableHead>
+                        <TableHead className="text-right">TP</TableHead>
+                        <TableHead className="text-right">P&L</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {positions.map((p) => (
+                        <TableRow key={p.ticket} className="hover:bg-muted/30 transition-colors">
+                          <TableCell className="font-medium text-xs">{p.symbol}</TableCell>
+                          <TableCell
+                            className={`font-semibold ${p.type === "BUY" ? "text-success dark:text-green-400" : "text-destructive"}`}
+                          >
+                            {p.type}
+                          </TableCell>
+                          <TableCell className="text-right font-mono">{p.lot}</TableCell>
+                          <TableCell className="text-right font-mono">{p.open_price.toFixed(2)}</TableCell>
+                          <TableCell className="text-right font-mono text-muted-foreground">
+                            {p.sl.toFixed(2)}
+                          </TableCell>
+                          <TableCell className="text-right font-mono text-muted-foreground">
+                            {p.tp.toFixed(2)}
+                          </TableCell>
+                          <TableCell
+                            className={`text-right font-mono font-semibold ${p.profit >= 0 ? "text-success dark:text-green-400" : "text-destructive"}`}
+                          >
+                            {p.profit >= 0 ? "+" : ""}
+                            {p.profit.toFixed(2)}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
                 </div>
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="h-56 sm:h-72 xl:h-80 p-3 pt-0 sm:p-6 sm:pt-0">
-              <PriceChart
-                key={`${activeSymbol}-${chartTimeframe}`}
-                symbol={activeSymbol}
-                timeframe={chartTimeframe}
-                tick={activeTick}
-              />
+              ) : (
+                <p className="text-sm text-muted-foreground text-center py-8 font-medium">
+                  No open positions
+                </p>
+              )}
             </CardContent>
           </Card>
-        )}
+        </div>
       </div>
 
       {/* AI Decision + News + Positions + Events — single column */}
@@ -635,62 +693,6 @@ export default function DashboardPage() {
                 </p>
               )}
             </div>
-          </CardContent>
-        </Card>
-
-        {/* Open Positions */}
-        <Card>
-          <CardHeader className="p-3 sm:p-6">
-            <CardTitle className="text-sm font-bold">Open Positions</CardTitle>
-          </CardHeader>
-          <CardContent className="p-3 pt-0 sm:p-6 sm:pt-0">
-            {positions.length > 0 ? (
-              <div className="overflow-x-auto -mx-3 px-3 sm:mx-0 sm:px-0">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Symbol</TableHead>
-                      <TableHead>Type</TableHead>
-                      <TableHead className="text-right">Lots</TableHead>
-                      <TableHead className="text-right">Entry</TableHead>
-                      <TableHead className="text-right">SL</TableHead>
-                      <TableHead className="text-right">TP</TableHead>
-                      <TableHead className="text-right">P&L</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {positions.map((p) => (
-                      <TableRow key={p.ticket} className="hover:bg-muted/30 transition-colors">
-                        <TableCell className="font-medium text-xs">{p.symbol}</TableCell>
-                        <TableCell
-                          className={`font-semibold ${p.type === "BUY" ? "text-success dark:text-green-400" : "text-destructive"}`}
-                        >
-                          {p.type}
-                        </TableCell>
-                        <TableCell className="text-right font-mono">{p.lot}</TableCell>
-                        <TableCell className="text-right font-mono">{p.open_price.toFixed(2)}</TableCell>
-                        <TableCell className="text-right font-mono text-muted-foreground">
-                          {p.sl.toFixed(2)}
-                        </TableCell>
-                        <TableCell className="text-right font-mono text-muted-foreground">
-                          {p.tp.toFixed(2)}
-                        </TableCell>
-                        <TableCell
-                          className={`text-right font-mono font-semibold ${p.profit >= 0 ? "text-success dark:text-green-400" : "text-destructive"}`}
-                        >
-                          {p.profit >= 0 ? "+" : ""}
-                          {p.profit.toFixed(2)}
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
-            ) : (
-              <p className="text-sm text-muted-foreground text-center py-8 font-medium">
-                No open positions
-              </p>
-            )}
           </CardContent>
         </Card>
 
