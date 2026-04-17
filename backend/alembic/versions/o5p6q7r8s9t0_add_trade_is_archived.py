@@ -16,6 +16,8 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
+    # Raise lock_timeout for this statement to survive zero-downtime deploy
+    op.execute("SET lock_timeout = '30s'")
     op.add_column(
         "trades",
         sa.Column("is_archived", sa.Boolean(), nullable=False, server_default="false"),

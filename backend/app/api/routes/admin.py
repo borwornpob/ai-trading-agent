@@ -8,9 +8,9 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.auth import require_auth
 from app.db.models import Trade
 from app.db.session import get_db
-from app.middleware.auth import require_auth
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
