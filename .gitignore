@@ -1,0 +1,53 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+venv/
+.venv/
+dist/
+build/
+
+# Environment
+.env
+*.env.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# Claude Code
+.claude/
+
+# Test scripts
+mt5_bridge/test_mt5.py
+
+# Node
+node_modules/
+.next/
+out/
+*.tsbuildinfo
+
+# Database
+*.db
+
+# OS
+.DS_Store
+Thumbs.db
+
+# ML models
+backend/models/
+*.pkl
+
+# Backups
+backups/
+*.sql.gz
+
+# Coverage
+.coverage
+
+# Logs
+*.log
+logs/
+gold_analysis_script.py
+backend/uv.lock

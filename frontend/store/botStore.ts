@@ -1,0 +1,161 @@
+import { create } from "zustand";
+
+type Position = {
+  ticket: number;
+  symbol: string;
+  type: string;
+  lot: number;
+  open_price: number;
+  current_price: number;
+  sl: number;
+  tp: number;
+  profit: number;
+  open_time: string;
+};
+
+type Sentiment = {
+  label: string;
+  score: number;
+  confidence: number;
+  key_factors: string[];
+  source_count: number;
+  analyzed_at: string;
+};
+
+type BotStatus = {
+  state: string;
+  strategy: string;
+  strategy_params: Record<string, unknown>;
+  symbol: string;
+  timeframe: string;
+  started_at: string | null;
+  use_ai_filter: boolean;
+  paper_trade: boolean;
+  max_lot?: number;
+  fixed_lot?: number | null;
+  regime?: string;
+  multi_tf_regime?: { m15: string; h1: string; h4: string; composite: string; style: string; agreement: number } | null;
+  sentiment?: Sentiment;
+  ai_decision?: {
+    decision: string;
+    strategy: string;
+    turns: number;
+    tool_calls: number;
+    duration_s: number;
+  };
+};
+
+type SymbolInfo = {
+  symbol: string;
+  display_name: string;
+  timeframe: string;
+  state: string;
+  price_decimals: number;
+  max_lot: number;
+  default_lot: number;
+};
+
+type AccountInfo = {
+  balance: number;
+  equity: number;
+  margin: number;
+  free_margin: number;
+  profit: number;
+};
+
+type Tick = { bid: number; ask: number; spread: number; time: string; symbol?: string };
+
+export type BotEvent = {
+  type: string;
+  message: string;
+  timestamp: string;
+};
+
+type BotStore = {
+  activeSymbol: string;
+  symbols: SymbolInfo[];
+  status: BotStatus | null;
+  symbolStatuses: Record<string, BotStatus>;
+  positions: Position[];
+  account: AccountInfo | null;
+  sentiment: Sentiment | null; // active symbol's sentiment (convenience)
+  sentiments: Record<string, Sentiment>;
+  ticks: Record<string, Tick>;
+  tick: Tick | null; // active symbol's tick (convenience)
+  events: BotEvent[];
+  // WebSocket connection state
+  wsConnected: boolean;
+  lastSyncAt: string | null;
+  // Notification center
+  unreadEventCount: number;
+  setActiveSymbol: (symbol: string) => void;
+  setSymbols: (symbols: SymbolInfo[]) => void;
+  setStatus: (status: BotStatus) => void;
+  setSymbolStatuses: (statuses: Record<string, BotStatus>) => void;
+  setPositions: (positions: Position[]) => void;
+  setAccount: (account: AccountInfo) => void;
+  setSentiment: (sentiment: Sentiment & { symbol?: string }) => void;
+  setTick: (tick: Tick) => void;
+  addEvent: (event: BotEvent) => void;
+  seedEvents: (events: BotEvent[]) => void;
+  setWsConnected: (connected: boolean) => void;
+  setLastSyncAt: (time: string) => void;
+  markEventsRead: () => void;
+};
+
+export const useBotStore = create<BotStore>((set, get) => ({
+  activeSymbol: "GOLD",
+  symbols: [],
+  status: null,
+  symbolStatuses: {},
+  positions: [],
+  account: null,
+  sentiment: null,
+  sentiments: {},
+  ticks: {},
+  tick: null,
+  events: [],
+  wsConnected: false,
+  lastSyncAt: null,
+  unreadEventCount: 0,
+  setActiveSymbol: (symbol) => {
+    const { ticks, sentiments } = get();
+    set({ activeSymbol: symbol, tick: ticks[symbol] || null, sentiment: sentiments[symbol] || null });
+  },
+  setSymbols: (symbols) => {
+    const { activeSymbol, ticks, sentiments } = get();
+    const match = symbols.some((s) => s.symbol === activeSymbol);
+    if (!match && symbols.length > 0) {
+      const first = symbols[0].symbol;
+      set({ symbols, activeSymbol: first, tick: ticks[first] || null, sentiment: sentiments[first] || null });
+    } else {
+      set({ symbols });
+    }
+  },
+  setStatus: (status) => set({ status }),
+  setSymbolStatuses: (statuses) => set({ symbolStatuses: statuses }),
+  setPositions: (positions) => set({ positions }),
+  setAccount: (account) => set({ account }),
+  setSentiment: (sentiment) => {
+    const symbol = sentiment.symbol || get().activeSymbol;
+    const sentiments = { ...get().sentiments, [symbol]: sentiment };
+    const isActive = symbol === get().activeSymbol;
+    set({ sentiments, ...(isActive ? { sentiment } : {}) });
+  },
+  setTick: (tick) => {
+    const symbol = tick.symbol || get().activeSymbol;
+    const ticks = { ...get().ticks, [symbol]: tick };
+    const isActive = symbol === get().activeSymbol;
+    set({ ticks, ...(isActive ? { tick } : {}) });
+  },
+  addEvent: (event) =>
+    set((state) => ({
+      events: [event, ...state.events].slice(0, 50),
+      unreadEventCount: state.unreadEventCount + 1,
+    })),
+  seedEvents: (events) =>
+    set({ events: events.slice(0, 50) }),
+  setWsConnected: (connected) => set({ wsConnected: connected }),
+  setLastSyncAt: (time) => set({ lastSyncAt: time }),
+  markEventsRead: () => set({ unreadEventCount: 0 }),
+}));
