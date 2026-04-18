@@ -27,22 +27,10 @@ async def run_agent_loop(
     model: str = MODEL_SPECIALIST,
     max_turns: int = 15,
     timeout: int = 120,
+    agent_id: str = "unknown",
     **kwargs,
 ) -> dict:
-    """Run an agent loop using Claude Agent SDK.
-
-    Args:
-        system_prompt: Agent's system prompt
-        user_message: The task/query
-        tools: Legacy — ignored (SDK uses MCP server for tools)
-        tool_names: Filter which MCP tools are visible to this agent
-        model: Claude model to use
-        max_turns: Maximum turns
-        timeout: Timeout in seconds
-
-    Returns:
-        Dict with response, tool_calls, turns, duration_s.
-    """
+    """Run an agent loop using Claude Agent SDK."""
     return await sdk_agent_loop(
         prompt=user_message,
         system_prompt=system_prompt,
@@ -50,4 +38,5 @@ async def run_agent_loop(
         allowed_tools=tool_names,
         max_turns=max_turns,
         timeout=timeout,
+        agent_id=agent_id,
     )

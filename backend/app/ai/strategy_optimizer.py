@@ -62,11 +62,15 @@ class StrategyOptimizer:
         self._collector = collector
 
     async def build_performance_summary(self, days: int = 7) -> str:
+        # Use a short-lived isolated session so the shared db_session is not held
+        # across the Claude API call that follows in optimize().
+        from app.db.session import async_session
         cutoff = datetime.utcnow() - timedelta(days=days)
-        result = await self.db.execute(
-            select(Trade).where(Trade.open_time >= cutoff).order_by(Trade.open_time)
-        )
-        trades = result.scalars().all()
+        async with async_session() as db:
+            result = await db.execute(
+                select(Trade).where(Trade.open_time >= cutoff, Trade.is_archived.is_(False)).order_by(Trade.open_time)
+            )
+            trades = result.scalars().all()
 
         if not trades:
             return "No trades in the last {days} days."
@@ -102,7 +106,7 @@ Profit factor: {pf:.2f}"""
         summary = await self.build_performance_summary()
         user_prompt = f"Current performance:\n{summary}\n\nCurrent params: {json.dumps(current_params)}"
 
-        result = await self.ai.complete_json_async(OPTIMIZATION_SYSTEM_PROMPT, user_prompt, max_tokens=512)
+        result = await self.ai.complete_json_async(OPTIMIZATION_SYSTEM_PROMPT, user_prompt, max_tokens=512, agent_id="optimization")
         if result is None:
             logger.warning("AI optimization failed")
             return None
@@ -133,26 +137,27 @@ Profit factor: {pf:.2f}"""
         now = datetime.utcnow()
         period_start = now - timedelta(days=7)
 
-        # Save to DB
+        # Save to DB — isolated short session, not the shared self.db
+        from app.db.session import async_session
+        log_id = None
         try:
-            log = AIOptimizationLog(
-                period_start=period_start,
-                period_end=now,
-                current_params=json.dumps(current_params),
-                suggested_params=json.dumps(suggested),
-                rationale=result.get("reasoning", ""),
-                confidence=float(result.get("confidence", 0.0)),
-                applied=should_apply,
-                backtest_result=json.dumps(backtest_validation) if backtest_validation else None,
-            )
-            self.db.add(log)
-            await self.db.commit()
-            await self.db.refresh(log)
-            log_id = log.id
+            async with async_session() as db:
+                log = AIOptimizationLog(
+                    period_start=period_start,
+                    period_end=now,
+                    current_params=json.dumps(current_params),
+                    suggested_params=json.dumps(suggested),
+                    rationale=result.get("reasoning", ""),
+                    confidence=float(result.get("confidence", 0.0)),
+                    applied=should_apply,
+                    backtest_result=json.dumps(backtest_validation) if backtest_validation else None,
+                )
+                db.add(log)
+                await db.commit()
+                await db.refresh(log)
+                log_id = log.id
         except Exception as e:
             logger.error(f"Failed to save optimization log: {e}")
-            await self.db.rollback()
-            log_id = None
 
         return OptimizationResult(
             assessment=result.get("assessment", ""),

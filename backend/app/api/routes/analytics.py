@@ -5,10 +5,11 @@ Analytics API routes — advanced performance metrics.
 import math
 from datetime import datetime, timedelta
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.cache import cached
 from app.db.models import Trade
 from app.db.session import get_db
 
@@ -17,26 +18,85 @@ router = APIRouter(prefix="/api/analytics", tags=["analytics"])
 
 @router.get("/performance")
 async def get_performance_analytics(
+    request: Request,
     symbol: str | None = None,
     days: int = Query(30, ge=1, le=365),
     db: AsyncSession = Depends(get_db),
 ):
+    from types import SimpleNamespace
+
+    from app.api.routes.bot import _manager
+
     if symbol:
         from app.config import resolve_broker_symbol
         symbol = resolve_broker_symbol(symbol)
+
+    async def _compute():
+        return await _compute_performance(symbol, days, db, _manager, SimpleNamespace)
+
+    redis_client = getattr(request.app.state, "redis", None)
+    if redis_client is None:
+        return await _compute()
+    return await cached(
+        redis_client,
+        f"cache:analytics_perf:{symbol or 'all'}:{days}",
+        60,
+        _compute,
+    )
+
+
+async def _compute_performance(symbol, days, db, _manager, SimpleNamespace):
 
     cutoff = datetime.utcnow() - timedelta(days=days)
     query = select(Trade).where(
         Trade.open_time >= cutoff,
         Trade.profit.isnot(None),
         Trade.close_time.isnot(None),
+        Trade.is_archived.is_(False),
     )
     if symbol:
         query = query.where(Trade.symbol == symbol)
     query = query.order_by(Trade.close_time)
 
     result = await db.execute(query)
-    trades = result.scalars().all()
+    db_trades = list(result.scalars().all())
+    db_tickets = {t.ticket for t in db_trades}
+    trades: list = list(db_trades)
+
+    # Merge MT5 history (catches manual trades not in DB)
+    if _manager is not None:
+        try:
+            from app.api.routes.bot import _get_engine
+            engine = _get_engine(symbol) if symbol else next(iter(_manager.engines.values()))
+            mt5_result = await engine.connector.get_history(days=days, symbol=symbol or None)
+            if mt5_result.get("success"):
+                for deal in mt5_result.get("data", []):
+                    ticket = deal.get("ticket")
+                    if ticket in db_tickets:
+                        continue
+                    try:
+                        deal_time = datetime.fromisoformat(deal["time"].replace("Z", ""))
+                    except Exception:
+                        continue
+                    if deal_time < cutoff:
+                        continue
+                    if symbol and deal.get("symbol") != symbol:
+                        continue
+                    deal_profit = deal.get("profit")
+                    if deal_profit is None:
+                        continue
+                    trades.append(SimpleNamespace(
+                        profit=deal_profit,
+                        open_time=deal_time,
+                        close_time=deal_time,
+                        expected_price=None,
+                        open_price=deal.get("open_price") or deal.get("price"),
+                        symbol=deal.get("symbol", ""),
+                    ))
+        except Exception:
+            pass
+
+    trades.sort(key=lambda t: t.close_time)
 
     if not trades:
         return {
@@ -202,6 +262,7 @@ async def get_slippage_analysis(
         Trade.open_time >= cutoff,
         Trade.expected_price.isnot(None),
         Trade.open_price.isnot(None),
+        Trade.is_archived.is_(False),
     )
     if symbol:
         query = query.where(Trade.symbol == symbol)

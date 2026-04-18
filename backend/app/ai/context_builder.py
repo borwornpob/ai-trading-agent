@@ -111,7 +111,7 @@ class AIContextBuilder:
         """Win rate by hour/day from Trade table."""
         cutoff = _naive(datetime.now(UTC)) - timedelta(days=days)
         result = await self.db.execute(
-            select(Trade).where(Trade.open_time >= cutoff, Trade.profit.isnot(None))
+            select(Trade).where(Trade.open_time >= cutoff, Trade.profit.isnot(None), Trade.is_archived.is_(False))
         )
         trades = result.scalars().all()
 

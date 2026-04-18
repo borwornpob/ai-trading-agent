@@ -44,6 +44,7 @@ async def run_agent(
         model=model,
         max_turns=MAX_AGENT_TURNS,
         timeout=AGENT_TIMEOUT,
+        agent_id="single_agent",
     )
     decision = result.get("response", "No decision")
 

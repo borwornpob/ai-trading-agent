@@ -14,16 +14,28 @@ MODEL = "claude-haiku-4-5-20251001"
 class AIClient:
     """AI client using Claude Agent SDK. No API key needed — uses Max subscription."""
 
-    async def complete_async(self, system_prompt: str, user_prompt: str, max_tokens: int = 256) -> str | None:
+    async def complete_async(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        max_tokens: int = 256,
+        agent_id: str = "sentiment",
+    ) -> str | None:
         try:
             from mcp_server.sdk_client import sdk_complete
-            return await sdk_complete(user_prompt, system_prompt, model=MODEL)
+            return await sdk_complete(user_prompt, system_prompt, model=MODEL, agent_id=agent_id)
         except Exception as e:
             logger.error(f"AI call failed: {e}")
             return None
 
-    async def complete_json_async(self, system_prompt: str, user_prompt: str, max_tokens: int = 256) -> dict | None:
-        text = await self.complete_async(system_prompt, user_prompt, max_tokens)
+    async def complete_json_async(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        max_tokens: int = 256,
+        agent_id: str = "sentiment",
+    ) -> dict | None:
+        text = await self.complete_async(system_prompt, user_prompt, max_tokens, agent_id=agent_id)
         if text is None:
             return None
         try:

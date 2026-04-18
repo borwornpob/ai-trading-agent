@@ -16,8 +16,10 @@ from app.ai.news_sentiment import NewsSentimentAnalyzer
 from app.ai.strategy_optimizer import StrategyOptimizer
 from app.api.routes import (
     activity,
+    admin,
     agent_prompts,
     ai_insights,
+    ai_usage,
     memory as memory_routes,
     analytics,
     backtest,
@@ -48,7 +50,15 @@ from app.config import settings
 from app.data.collector import HistoricalDataCollector
 from app.data.macro import MacroDataService
 from app.data.macro_events import MacroEventCalendar
-from app.db.session import async_session
+from app.db.observability import (
+    PoolPressureMonitor,
+    SessionLifetimeMiddleware,
+    get_pool_stats,
+    install_slow_query_logger,
+    long_hold_tracker,
+    slow_query_tracker,
+)
+from app.db.session import async_session, engine as db_engine
 from app.health import check_health
 from app.middleware.auth import AuthMiddleware
 from app.mt5.connector import MT5BridgeConnector
@@ -62,24 +72,47 @@ async def lifespan(app: FastAPI):
 
     logger.info("Starting Trading Bot (multi-symbol)...")
 
-    # Auto-add missing columns (safe for production — ALTER TABLE IF NOT EXISTS equivalent)
-    try:
-        from sqlalchemy import text
-        async with async_session() as _tmp_session:
-            await _tmp_session.execute(text("SET lock_timeout = '5s'"))
-            for col_sql in [
-                "ALTER TABLE trades ADD COLUMN IF NOT EXISTS trade_reason VARCHAR(255)",
-                "ALTER TABLE trades ADD COLUMN IF NOT EXISTS pre_trade_snapshot JSON",
-                "ALTER TABLE trades ADD COLUMN IF NOT EXISTS post_trade_analysis JSON",
-            ]:
-                try:
-                    await _tmp_session.execute(text(col_sql))
-                except Exception:
-                    pass
-            await _tmp_session.commit()
-        logger.info("DB schema check complete")
-    except Exception as e:
-        logger.warning(f"DB schema auto-migration skipped: {e}")
+    # Phase 1 observability: slow query logger — attach once, survives entire app lifetime
+    install_slow_query_logger(db_engine, threshold_ms=settings.db_slow_query_threshold_ms)
+
+    # Auto-add missing columns/tables (safe for production — IF NOT EXISTS guards)
+    # Each statement runs in its own session to isolate transaction abort on error.
+    from sqlalchemy import text
+    schema_stmts = [
+        "ALTER TABLE trades ADD COLUMN IF NOT EXISTS trade_reason VARCHAR(255)",
+        "ALTER TABLE trades ADD COLUMN IF NOT EXISTS pre_trade_snapshot JSON",
+        "ALTER TABLE trades ADD COLUMN IF NOT EXISTS post_trade_analysis JSON",
+        "ALTER TABLE trades ADD COLUMN IF NOT EXISTS is_archived BOOLEAN NOT NULL DEFAULT FALSE",
+        "CREATE INDEX IF NOT EXISTS ix_trades_is_archived ON trades (is_archived)",
+        """CREATE TABLE IF NOT EXISTS ai_usage_logs (
+            id BIGSERIAL PRIMARY KEY,
+            timestamp TIMESTAMP NOT NULL DEFAULT NOW(),
+            agent_id VARCHAR(100) NOT NULL,
+            model VARCHAR(100) NOT NULL,
+            input_tokens INTEGER NOT NULL DEFAULT 0,
+            output_tokens INTEGER NOT NULL DEFAULT 0,
+            cache_read_tokens INTEGER NOT NULL DEFAULT 0,
+            cache_write_tokens INTEGER NOT NULL DEFAULT 0,
+            cost_usd_sdk DOUBLE PRECISION,
+            cost_usd_calc DOUBLE PRECISION,
+            duration_ms INTEGER NOT NULL DEFAULT 0,
+            turns INTEGER NOT NULL DEFAULT 0,
+            tool_calls_count INTEGER NOT NULL DEFAULT 0,
+            success BOOLEAN NOT NULL DEFAULT TRUE,
+            raw_usage JSON
+        )""",
+        "CREATE INDEX IF NOT EXISTS ix_ai_usage_logs_timestamp ON ai_usage_logs (timestamp)",
+        "CREATE INDEX IF NOT EXISTS ix_ai_usage_logs_agent_id ON ai_usage_logs (agent_id)",
+    ]
+    for stmt in schema_stmts:
+        try:
+            async with async_session() as _tmp_session:
+                await _tmp_session.execute(text("SET lock_timeout = '5s'"))
+                await _tmp_session.execute(text(stmt))
+                await _tmp_session.commit()
+        except Exception as e:
+            logger.warning(f"Schema stmt skipped: {str(e)[:120]}")
+    logger.info("DB schema check complete")
 
     # Initialize shared components
     connector = MT5BridgeConnector()
@@ -177,10 +210,26 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.debug(f"Redis trading_mode restore failed: {e}")
 
+    # Phase 1 observability: pool pressure monitor — Telegram alert on sustained high utilization
+    pool_monitor = PoolPressureMonitor(
+        db_engine,
+        notifier=notifier,
+        high_threshold=settings.db_pool_alert_threshold,
+        sustained_seconds=settings.db_pool_alert_sustained_seconds,
+    )
+    app.state.pool_monitor = pool_monitor
+
     # Start scheduler
     scheduler = BotScheduler(manager)
     scheduler.set_health_monitor(health_monitor)
     scheduler.start()
+    scheduler.scheduler.add_job(
+        pool_monitor.tick,
+        "interval",
+        seconds=10,
+        id="db_pool_pressure",
+        replace_existing=True,
+    )
     for engine in manager.engines.values():
         engine._scheduler = scheduler
     app.state.scheduler = scheduler
@@ -267,6 +316,22 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 
 app.add_middleware(SecurityHeadersMiddleware)
 
+# Phase 1 observability: warn on long-held DB connections per request
+app.add_middleware(
+    SessionLifetimeMiddleware,
+    async_engine=db_engine,
+    warn_threshold_ms=settings.db_request_warn_ms,
+    error_threshold_ms=settings.db_request_error_ms,
+)
+
+# Phase 4 rate limit — Redis token bucket per (IP, path). Fails open if Redis unavailable.
+from app.middleware.rate_limit import RateLimitMiddleware
+app.add_middleware(
+    RateLimitMiddleware,
+    sustained_per_minute=settings.rate_limit_per_minute,
+    burst_capacity=settings.rate_limit_burst,
+)
+
 # Auth middleware disabled — using Bearer token auth (legacy password mode)
 # app.add_middleware(AuthMiddleware)
 
@@ -280,6 +345,7 @@ app.add_middleware(
 )
 
 # Routes
+app.include_router(admin.router)
 app.include_router(auth_router)
 app.include_router(webauthn_router)
 app.include_router(bot.router)
@@ -302,6 +368,7 @@ app.include_router(integration.router)
 app.include_router(webhooks.router)
 app.include_router(activity.router)
 app.include_router(agent_prompts.router)
+app.include_router(ai_usage.router)
 app.include_router(memory_routes.router)
 app.include_router(quant.router)
 app.include_router(ws_router)
@@ -318,3 +385,23 @@ async def health():
         app.state.redis,
         app.state.ai_client,
     )
+
+
+@app.get("/health/pool")
+async def health_pool():
+    """Live DB pool stats + recent slow queries + long-hold requests."""
+    stats = get_pool_stats(db_engine)
+    monitor = getattr(app.state, "pool_monitor", None)
+    return {
+        "pool": stats,
+        "samples": monitor.recent(60) if monitor else [],
+        "slow_queries": slow_query_tracker.top(10),
+        "long_holds": long_hold_tracker.top(10),
+        "thresholds": {
+            "alert_utilization": settings.db_pool_alert_threshold,
+            "alert_sustained_seconds": settings.db_pool_alert_sustained_seconds,
+            "slow_query_ms": settings.db_slow_query_threshold_ms,
+            "request_warn_ms": settings.db_request_warn_ms,
+            "request_error_ms": settings.db_request_error_ms,
+        },
+    }

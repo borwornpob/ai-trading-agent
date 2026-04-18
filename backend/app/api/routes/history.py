@@ -4,7 +4,9 @@ Trade history API routes.
 
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
+
+from app.cache import cached
 from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -33,7 +35,7 @@ async def get_trades(
     cutoff = datetime.utcnow() - timedelta(days=days)
 
     # 1. Pull from DB (with fallback if new columns not yet migrated)
-    query = select(Trade).where(Trade.open_time >= cutoff)
+    query = select(Trade).where(Trade.open_time >= cutoff, Trade.is_archived.is_(False))
     if strategy:
         query = query.where(Trade.strategy_name == strategy)
     if trade_type:
@@ -141,6 +143,7 @@ async def get_trades(
 
 @router.get("/daily-pnl")
 async def get_daily_pnl(
+    request: Request,
     symbol: str | None = None,
     db: AsyncSession = Depends(get_db),
 ):
@@ -151,6 +154,16 @@ async def get_daily_pnl(
     if symbol:
         symbol = resolve_broker_symbol(symbol)
 
+    async def _fetch():
+        return await _fetch_daily_pnl(symbol, db, _manager)
+
+    redis_client = getattr(request.app.state, "redis", None)
+    if redis_client is None:
+        return await _fetch()
+    return await cached(redis_client, f"cache:daily_pnl:{symbol or 'all'}", 15, _fetch)
+
+
+async def _fetch_daily_pnl(symbol, db, _manager):
     today = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
 
     # 1. Try MT5 live history first (catches all trades — bot + manual)
@@ -177,6 +190,7 @@ async def get_daily_pnl(
     db_query = select(Trade).where(
         Trade.close_time >= today,
         Trade.profit.isnot(None),
+        Trade.is_archived.is_(False),
     )
     if symbol:
         db_query = db_query.where(Trade.symbol == symbol)
@@ -210,26 +224,57 @@ async def get_performance(
     symbol: str | None = None,
     db: AsyncSession = Depends(get_db),
 ):
+    from app.api.routes.bot import _manager
+
     if symbol:
         from app.config import resolve_broker_symbol
         symbol = resolve_broker_symbol(symbol)
 
     cutoff = datetime.utcnow() - timedelta(days=days)
-    query = select(Trade).where(Trade.open_time >= cutoff, Trade.profit.isnot(None))
+    query = select(Trade).where(Trade.open_time >= cutoff, Trade.profit.isnot(None), Trade.is_archived.is_(False))
     if symbol:
         query = query.where(Trade.symbol == symbol)
     result = await db.execute(query)
-    trades = result.scalars().all()
+    db_trades = result.scalars().all()
 
-    if not trades:
-        return {"total_trades": 0, "win_rate": 0, "total_profit": 0, "monthly_pnl": []}
+    db_tickets = {t.ticket for t in db_trades}
+    profits: list[float] = [t.profit for t in db_trades]
 
-    wins = [t for t in trades if t.profit > 0]
-    total_profit = sum(t.profit for t in trades)
+    # Merge MT5 history (catches manual trades not in DB)
+    if _manager is not None:
+        try:
+            from app.api.routes.bot import _get_engine
+            engine = _get_engine(symbol) if symbol else next(iter(_manager.engines.values()))
+            mt5_result = await engine.connector.get_history(days=days, symbol=symbol or None)
+            if mt5_result.get("success"):
+                for deal in mt5_result.get("data", []):
+                    ticket = deal.get("ticket")
+                    if ticket in db_tickets:
+                        continue
+                    try:
+                        deal_time = datetime.fromisoformat(deal["time"].replace("Z", ""))
+                    except Exception:
+                        continue
+                    if deal_time < cutoff:
+                        continue
+                    if symbol and deal.get("symbol") != symbol:
+                        continue
+                    deal_profit = deal.get("profit")
+                    if deal_profit is None:
+                        continue
+                    profits.append(deal_profit)
+        except Exception:
+            pass
+
+    if not profits:
+        return {"total_trades": 0, "win_rate": 0, "total_profit": 0, "avg_profit": 0}
+
+    wins = [p for p in profits if p > 0]
+    total_profit = sum(profits)
 
     return {
-        "total_trades": len(trades),
-        "win_rate": round(len(wins) / len(trades), 4) if trades else 0,
+        "total_trades": len(profits),
+        "win_rate": round(len(wins) / len(profits), 4),
         "total_profit": round(total_profit, 2),
-        "avg_profit": round(total_profit / len(trades), 2),
+        "avg_profit": round(total_profit / len(profits), 2),
     }

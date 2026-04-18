@@ -32,7 +32,7 @@ Provide a structured analysis with:
 - NEUTRAL means "no fundamental edge either way" — it does not mean "don't trade".
 
 Be concise and data-driven. The Orchestrator needs clear directional bias, not speculation.
-ห้ามใช้ emoji ห้ามใช้ markdown table ใช้ bullet list แทน"""
+Respond in English only. Do NOT use emoji, icons, or unicode symbols. Do NOT use markdown tables — use bullet lists."""
 
 TOOL_NAMES = [
     "get_sentiment",
@@ -65,4 +65,5 @@ async def analyze(symbol: str, timeframe: str = "M15") -> dict:
         model=MODEL_SPECIALIST,
         max_turns=8,
         timeout=60,
+        agent_id="fundamental_analyst",
     )
